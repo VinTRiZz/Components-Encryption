@@ -62,6 +62,7 @@ set(CMAKE_AUTORCC ON)
 # Library target
 add_library(${LIBRARY_NAME} SHARED)
 target_link_libraries(${LIBRARY_NAME} PRIVATE ${TARGET_LINKED_LIBS} )
+LINK_COMPONENT(${LIBRARY_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/depends Filework)
 
 # Files
 file(GLOB_RECURSE HEADERS "src/*.hpp" "src/*.h")

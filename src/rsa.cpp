@@ -1,302 +1,197 @@
 #include "rsa.hpp"
 
-#include <openssl/pem.h>
+#include <openssl/evp.h>
 #include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
 
 #include <algorithm>
 #include <fstream>
 
+#include <Components/Filework/Common.h>
+
 namespace Encryption
 {
 
-void generate_rsa_keypair(RSA** rsa_key)
-{
-    *rsa_key = RSA_new();
-    BIGNUM* e = BN_new();
-    BN_set_word(e, RSA_F4);
-    RSA_generate_key_ex(*rsa_key, 2048, e, NULL);
-    BN_free(e);
+EVP_PKEY *rsaGenerateKeys() {
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
+    EVP_PKEY_keygen_init(ctx);
+    EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048);
+
+    EVP_PKEY* pkey = NULL;
+    EVP_PKEY_keygen(ctx, &pkey);
+    EVP_PKEY_CTX_free(ctx);
+    return pkey; // Remember to EVP_PKEY_free(pkey) when done
 }
 
-std::string rsa_public_key_to_string(RSA* rsa_key)
-{
-    BIO* bio = BIO_new(BIO_s_mem());
-    PEM_write_bio_RSAPublicKey(bio, rsa_key);
-    char* buffer = NULL;
-    long key_size = BIO_get_mem_data(bio, &buffer);
-    std::string key_str(buffer, key_size);
-    BIO_free(bio);
-    return key_str;
-}
-
-RSA* rsa_public_key_from_string(std::string & public_key_str)
-{
-    const char* public_key_cstr = public_key_str.c_str();
-    BIO* bio = BIO_new_mem_buf((void*)public_key_cstr, -1);
-    RSA* rsa_key = PEM_read_bio_RSAPublicKey(bio, NULL, NULL, NULL);
-    if (rsa_key == NULL)
-    {
-        return NULL;
-    }
-    BIO_free(bio);
-    return rsa_key;
-}
-
-bool savePrivateKey(RSA* rsa_key, const std::string& filename)
-{
+bool rsaSavePublicKey(EVP_PKEY *pkey, std::string&filename) {
     FILE* fp = fopen(filename.c_str(), "wb");
-    if (!fp)
-    {
-        return false;
-    }
-
-    int ret = PEM_write_RSAPrivateKey(fp, rsa_key, nullptr, nullptr, 0, nullptr, nullptr);
-    if (ret != 1)
-    {
-        fclose(fp);
-        return false;
-    }
-
+    auto writeByteCount = PEM_write_PUBKEY(fp, pkey);
     fclose(fp);
-
-    return true;
+    return (writeByteCount != 0);
 }
 
-RSA* loadPrivateKey(const std::string& filename)
+bool rsaSavePrivateKey(EVP_PKEY *pkey, const std::string &filename)
 {
-    RSA* rsa_key = nullptr;
-
-    FILE* fp = fopen(filename.c_str(), "r");
-    if (!fp)
-    {
-        return nullptr;
+    FILE* pkey_file = fopen(filename.c_str(), "wb");
+    if (!pkey_file) {
+        return false;
     }
 
-    rsa_key = PEM_read_RSAPrivateKey(fp, nullptr, nullptr, nullptr);
-    if (!rsa_key)
-    {
-        fclose(fp);
-        return nullptr;
-    }
+    auto writeByteCount = PEM_write_PrivateKey(pkey_file, pkey, NULL, NULL, 0, NULL, NULL);
+    fclose(pkey_file);
+    return (writeByteCount != 0);
+}
 
+
+EVP_PKEY *rsaLoadPublicKey(const std::string &filename) {
+    FILE* fp = fopen(filename.c_str(), "rb");
+    EVP_PKEY* pkey = PEM_read_PUBKEY(fp, NULL, NULL, NULL);
     fclose(fp);
-
-    return rsa_key;
+    return pkey;
 }
 
-RSA* loadPublicKey(const std::string& filename)
-{
-    RSA* rsa_key = nullptr;
-
-    FILE* fp = fopen(filename.c_str(), "r");
-    if (!fp)
-    {
-        return nullptr;
-    }
-
-    rsa_key = PEM_read_RSAPublicKey(fp, nullptr, nullptr, nullptr);
-    if (!rsa_key)
-    {
-        fclose(fp);
-        return nullptr;
-    }
-
+EVP_PKEY *rsaLoadPrivateKey(const std::string &filename, const std::string &passphrase) {
+    FILE* fp = fopen(filename.c_str(), "rb");
+    // Pass passphrase if the key is encrypted
+    EVP_PKEY* pkey = PEM_read_PrivateKey(fp, NULL, NULL, (void*)passphrase.c_str());
     fclose(fp);
-
-    return rsa_key;
+    return pkey;
 }
 
-bool savePublicKey(RSA* rsa_key, const std::string& filename)
+
+bool rsaEncryptString(EVP_PKEY *publicKey, const std::string &plaintext, std::string &result) {
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(publicKey, NULL);
+    if (!ctx || EVP_PKEY_encrypt_init(ctx) <= 0) {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    // Set padding - OAEP padding is recommended for new applications :cite[1]
+    if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0) {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    // Determine buffer size
+    size_t ciphertext_len {0};
+    if (EVP_PKEY_encrypt(ctx, NULL, &ciphertext_len, reinterpret_cast<const unsigned char*>(plaintext.c_str()), plaintext.size()) <= 0) {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    // Perform encryption
+    result.reserve(ciphertext_len);
+    if (EVP_PKEY_encrypt(ctx, reinterpret_cast<unsigned char*>(result.data()), &ciphertext_len, reinterpret_cast<const unsigned char*>(plaintext.c_str()), plaintext.size()) <= 0) {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    EVP_PKEY_CTX_free(ctx);
+    return true;
+}
+
+bool rsaDecryptString(EVP_PKEY *privateKey, const std::string &ciphertext, std::string &result) {
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(privateKey, NULL);
+    if (!ctx || EVP_PKEY_decrypt_init(ctx) <= 0) {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    // Set padding - MUST match the padding used during encryption
+    if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0) {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    // Determine buffer size
+    size_t plaintext_len {0};
+    if (EVP_PKEY_decrypt(ctx, NULL, &plaintext_len, reinterpret_cast<const unsigned char*>(ciphertext.c_str()), ciphertext.size()) <= 0) {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    // Perform decryption
+    result.reserve(plaintext_len);
+    if (EVP_PKEY_decrypt(ctx, reinterpret_cast<unsigned char*>(result.data()), &plaintext_len, reinterpret_cast<const unsigned char*>(ciphertext.c_str()), ciphertext.size()) <= 0) {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    result.resize(plaintext_len); // Adjust to the actual decrypted size
+    EVP_PKEY_CTX_free(ctx);
+    return true;
+}
+
+std::string rsaKeyToString(EVP_PKEY *privateKey)
 {
-    FILE* fp = fopen(filename.c_str(), "wb");
-    if (!fp)
-    {
+    EVP_PKEY *pkey {nullptr}; // Your key object
+    BIO *bio = BIO_new(BIO_s_mem()); // Create a memory BIO
+    char *pem_string = NULL;
+
+    std::string res;
+    if (PEM_write_bio_PUBKEY(bio, pkey)) {
+        long pem_length = BIO_get_mem_data(bio, &pem_string);
+        res.reserve(pem_length);
+        std::copy(pem_string, pem_string + pem_length, std::back_inserter(res));
+    }
+
+    BIO_free(bio);
+    return res;
+}
+
+bool rsaEncryptFile(const std::string &targetFile, const std::string &pubkeyPath)
+{
+    std::string fileData;
+    if (!Filework::Common::readFileData(targetFile, fileData)) {
+        global_encryptionErrorText = "Failed to read file data";
         return false;
     }
 
-    int ret = PEM_write_RSAPublicKey(fp, rsa_key);
-    if (ret != 1)
-    {
-        fclose(fp);
+    auto rsaPublicKey = rsaLoadPublicKey(pubkeyPath);
+
+    std::string res;
+    if (!rsaEncryptString(rsaPublicKey, fileData, res)) {
         return false;
     }
 
-    fclose(fp);
+    if (!Filework::Common::replaceFileData(targetFile, res)) {
+        global_encryptionErrorText = "Failed to write file data";
+        return false;
+    }
 
     return true;
 }
 
-bool rsa_encrypt(const std::string & message, RSA* rsa_key, std::string & encryptedMessage)
+bool rsaDecryptFile(const std::string &targetFile, const std::string &privkeyPath, const std::string &pass)
 {
-    int rsa_len = RSA_size(rsa_key);
-    unsigned char* rsa_encrypted = new unsigned char[rsa_len];
-    int encrypted_len = RSA_public_encrypt(message.length(), (unsigned char*)message.c_str(), rsa_encrypted, rsa_key, RSA_PKCS1_PADDING);
-    if (encrypted_len == -1)
-    {
+    std::string fileData;
+    if (!Filework::Common::readFileData(targetFile, fileData)) {
+        global_encryptionErrorText = "Failed to read file data";
         return false;
     }
-    encryptedMessage = std::string((const char*)rsa_encrypted, encrypted_len);
-    delete[] rsa_encrypted;
-    return true;
-}
 
-bool rsa_encrypt(const std::vector<char> message, RSA* rsa_key, char * encryptedMessage)
-{
-    int rsa_len = RSA_size(rsa_key);
-    unsigned char* rsa_encrypted = new unsigned char[rsa_len];
-    int encrypted_len = RSA_public_encrypt(message.size(), (unsigned char*)message.data(), rsa_encrypted, rsa_key, RSA_PKCS1_PADDING);
-    if (encrypted_len == -1)
-    {
+    auto rsaPrivateKey = rsaLoadPrivateKey(privkeyPath, pass);
+
+    std::string res;
+    if (!rsaDecryptString(rsaPrivateKey, fileData, res)) {
         return false;
     }
-    memcpy(encryptedMessage, rsa_encrypted, encrypted_len);
-    delete[] rsa_encrypted;
-    return true;
-}
 
-bool rsa_decrypt(const std::string & encryptedMessage, RSA* rsa_key, std::string & decryptedMessage)
-{
-    int rsa_len = RSA_size(rsa_key);
-    unsigned char* rsa_decrypted = new unsigned char[rsa_len];
-    int decrypted_len = RSA_private_decrypt(encryptedMessage.length(), (unsigned char*)encryptedMessage.c_str(), rsa_decrypted, rsa_key, RSA_PKCS1_PADDING);
-    if (decrypted_len == -1)
-    {
+    if (!Filework::Common::replaceFileData(targetFile, res)) {
+        global_encryptionErrorText = "Failed to write file data";
         return false;
     }
-    decryptedMessage = std::string((const char*)rsa_decrypted, decrypted_len);
-    delete[] rsa_decrypted;
+
     return true;
-}
-
-bool rsa_decrypt(const std::vector<char> encryptedMessage, RSA* rsa_key, char * decryptedMessage)
-{
-    int rsa_len = RSA_size(rsa_key);
-    unsigned char* rsa_decrypted = new unsigned char[rsa_len];
-    int decrypted_len = RSA_private_decrypt(encryptedMessage.size(), (unsigned char*)encryptedMessage.data(), rsa_decrypted, rsa_key, RSA_PKCS1_PADDING);
-    if (decrypted_len == -1)
-    {
-        return false;
-    }
-    memcpy(decryptedMessage, rsa_decrypted, decrypted_len);
-    delete[] rsa_decrypted;
-    return true;
-}
-
-void encryptFileRSA(const std::string & inputPath, const std::string & outputPath, const std::string & pubKeyPath, const std::string & privKeyPath)
-{
-    std::fstream inputFile(inputPath, std::ios_base::in | std::ios_base::binary), outputFile(outputPath, std::ios_base::out | std::ios_base::trunc | std::ios_base::binary);
-
-    if (!inputFile.is_open() || !outputFile.is_open())
-    {
-        return;
-    }
-
-    RSA * keys;
-    generate_rsa_keypair(&keys);
-    if (!savePrivateKey(keys, privKeyPath) || !savePublicKey(keys, pubKeyPath))
-    {
-        return;
-    }
-
-    const size_t bufSize = RSA_size(keys) - 11;
-    const size_t resultSize = RSA_size(keys);
-    char bufferChar[ bufSize ];
-    std::vector<char> bufCharVect;
-    char encryptResult[ resultSize ];
-
-    while (!inputFile.eof())
-    {
-        if (inputFile.read(bufferChar, bufSize).gcount() <= 0)
-        {
-            break;
-        }
-
-        bufCharVect.resize(bufSize);
-        std::copy(bufferChar, bufferChar + bufSize, bufCharVect.begin());
-
-        if (rsa_encrypt(bufCharVect, keys, encryptResult))
-        {
-            outputFile.write(encryptResult, resultSize);
-
-            // Clear buffers
-            bufCharVect.clear();
-            std::fill(bufferChar, bufferChar + bufSize, '\0');
-            std::fill(encryptResult, encryptResult + resultSize, '\0');
-        }
-    }
-
-    RSA_free(keys);
-
-    inputFile.close();
-    outputFile.close();
-}
-
-void decryptFileRSA(const std::string & inputPath, const std::string & outputPath, const std::string & privKeyPath)
-{
-    std::fstream inputFile(inputPath, std::ios_base::in | std::ios_base::binary), outputFile(outputPath, std::ios_base::out | std::ios_base::trunc | std::ios_base::binary);
-
-    if (!inputFile.is_open() || !outputFile.is_open())
-    {
-        return;
-    }
-
-    RSA * loadedPrivKey;
-    loadedPrivKey = loadPrivateKey(privKeyPath);
-    if (loadedPrivKey == nullptr)
-    {
-        return;
-    }
-
-    const size_t bufSize = RSA_size(loadedPrivKey);
-    const size_t resultSize = RSA_size(loadedPrivKey) - 11;
-    char bufferChar[ bufSize ];
-    std::vector<char> bufCharVect;
-    char decryptResult[ resultSize ];
-    char suffix[8] = {0x00};
-
-    while (!inputFile.eof())
-    {
-        if (inputFile.read(bufferChar, bufSize).gcount() < bufSize)
-        {
-            break;
-        }
-
-        bufCharVect.resize(bufSize);
-        std::copy(bufferChar, bufferChar + bufSize, bufCharVect.begin());
-
-        if (rsa_decrypt(bufCharVect, loadedPrivKey, decryptResult))
-        {
-            if (inputFile.read(bufferChar, bufSize).gcount() < bufSize)
-            {
-                char * garbagePos_begin = std::search(decryptResult, decryptResult + resultSize, suffix, suffix + 7);
-
-                if (garbagePos_begin < (decryptResult + resultSize))
-                {
-                    outputFile.write(decryptResult, garbagePos_begin - decryptResult);
-                }
-                else
-                {
-                    outputFile.write(decryptResult, resultSize);
-                }
-            }
-            else
-            {
-                inputFile.seekg(-256, std::ios_base::cur);
-
-                outputFile.write(decryptResult, resultSize);
-            }
-
-            // Clear buffers
-            bufCharVect.clear();
-            std::fill(bufferChar, bufferChar + bufSize, '\0');
-            std::fill(decryptResult, decryptResult + resultSize, '\0');
-        }
-    }
-
-    RSA_free(loadedPrivKey);
-
-    inputFile.close();
-    outputFile.close();
 }
 
 }
