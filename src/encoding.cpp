@@ -1,6 +1,7 @@
 #include "encoding.hpp"
 
 #include <sstream>
+#include <iconv.h>
 #include <iomanip>
 #include <random>
 #include <algorithm>
@@ -70,6 +71,40 @@ std::string decodeHex(const std::string& input)
     convertedStr.reserve(input.size());
     boost::algorithm::unhex(input, std::back_inserter(convertedStr));
     return convertedStr;
+}
+
+std::string cp1251_to_utf8(const std::string &str)
+{
+    // инициализируем объект iconv для конвертации
+    iconv_t cd = iconv_open("UTF-8", "CP1251");
+    if (cd == (iconv_t)(-1)) {
+        throw std::runtime_error("Не удалось инициализировать объект iconv");
+    }
+
+    // вычисляем размер буфера для конвертированной строки
+    size_t in_bytes = str.size();
+    size_t out_bytes = 4 * in_bytes; // максимально возможный размер строки в UTF-8
+    char* outbuf = new char[out_bytes];
+
+    // конвертируем строку из CP1251 в UTF-8
+    char* inbuf = const_cast<char*>(str.c_str());
+    char* outptr = outbuf;
+    size_t inbytesleft = in_bytes;
+    size_t outbytesleft = out_bytes;
+    int res = iconv(cd, &inbuf, &inbytesleft, &outptr, &outbytesleft);
+    if (res == -1) {
+        throw std::runtime_error("Ошибка при конвертации из CP1251 в UTF-8");
+    }
+
+    // завершаем строку в UTF-8
+    *outptr = '\0';
+    std::string result(outbuf);
+
+    // освобождаем память и закрываем объект iconv
+    delete[] outbuf;
+    iconv_close(cd);
+
+    return result;
 }
 
 }
