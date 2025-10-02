@@ -13,7 +13,6 @@
 
 namespace Encryption
 {
-std::string global_encryptionErrorText;
 
 std::string encodeBase64(const std::string &input)
 {
@@ -55,11 +54,6 @@ std::string decodeBase64(const std::string &input)
     delete[] buffer;
 
     return output;
-}
-
-std::string getEncryptionErrorText()
-{
-    return global_encryptionErrorText;
 }
 
 std::string encodeHex(const std::string& input)

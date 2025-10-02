@@ -11,8 +11,6 @@
 
 namespace Encryption {
 
-std::string global_encryptionErrorText;
-
 std::string generateKey(size_t lengthByte)
 {
     std::string result;
@@ -162,11 +160,6 @@ std::string aes256decrypt(const std::string &input, const std::string &key)
         return output;
     }
     return {};
-}
-
-std::string getEncryptionErrorText()
-{
-    return global_encryptionErrorText;
 }
 
 #ifdef QT_CORE_LIB
