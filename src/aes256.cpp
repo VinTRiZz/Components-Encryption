@@ -11,113 +11,172 @@
 
 namespace Encryption {
 
-QByteArray generateSecureIV() {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<char> dist(-127, 127);
+std::string global_encryptionErrorText;
 
-    QByteArray iv(AES_BLOCK_SIZE, 0);  // 16 байт
-    std::generate_n(iv.data(), AES_BLOCK_SIZE - 1,
-                    []() -> char { return dist(gen); });
-    return iv;
+std::string generateKey(size_t lengthByte)
+{
+    std::string result;
+    char test_symbol;
+
+    std::random_device rd;
+    std::mt19937 rng(rd());
+    std::uniform_int_distribution<int> uni(0, 255);
+
+    for (int8_t i = 0; result.size() < lengthByte; i++)
+    {
+        test_symbol = uni(rng);
+        if ((test_symbol > 32) || (test_symbol < 0))
+        {
+            result += test_symbol;
+        }
+    }
+
+    return result;
 }
 
+bool aes256encryptHelper(const std::string& plaintext,
+                                       const std::string& key,
+                                       const std::string& iv,
+                                       std::string& ciphertext)
+{
+    const EVP_CIPHER* cipher = EVP_get_cipherbyname("aes-256-cbc");
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL)
+    {
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        return false;
+    }
+    if (EVP_EncryptInit_ex(ctx, cipher, NULL, (const unsigned char*)key.c_str(),
+                           (const unsigned char*)iv.c_str()) != 1)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        return false;
+    }
+    const int plaintextLength = plaintext.length();
+    const int maxCiphertextLength =
+        plaintextLength + EVP_CIPHER_block_size(cipher);
+    unsigned char* ciphertextBytes = new unsigned char[maxCiphertextLength];
+    int ciphertextLength           = 0;
+    if (EVP_EncryptUpdate(ctx, ciphertextBytes, &ciphertextLength,
+                          (const unsigned char*)plaintext.c_str(),
+                          plaintextLength) != 1)
+    {
+        delete[] ciphertextBytes;
+        EVP_CIPHER_CTX_free(ctx);
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        return false;
+    }
+    int ciphertextFinalLength = 0;
+    if (EVP_EncryptFinal_ex(ctx, ciphertextBytes + ciphertextLength,
+                            &ciphertextFinalLength) != 1)
+    {
+        delete[] ciphertextBytes;
+        EVP_CIPHER_CTX_free(ctx);
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        return false;
+    }
+    ciphertextLength += ciphertextFinalLength;
+    ciphertext.assign((const char*)ciphertextBytes, ciphertextLength);
+    delete[] ciphertextBytes;
+    EVP_CIPHER_CTX_free(ctx);
+
+    return true;
+}
+
+bool aes256decryptHelper(std::string& ciphertext,
+                                       const std::string& key,
+                                       const std::string& iv,
+                                       std::string& plaintext)
+{
+    // Указываем параметры алгоритма шифрования
+    const EVP_CIPHER* cipher = EVP_get_cipherbyname("aes-256-cbc");
+
+    // Дешифруем текст
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL)
+    {
+        return false;
+    }
+    if (EVP_DecryptInit_ex(ctx, cipher, NULL, (const unsigned char*)key.c_str(),
+                           (const unsigned char*)iv.c_str()) != 1)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        return false;
+    }
+    const int ciphertextLength = ciphertext.length();
+    const int maxPlaintextLength =
+        ciphertextLength + EVP_CIPHER_block_size(cipher);
+    unsigned char* plaintextBytes = new unsigned char[maxPlaintextLength];
+    int plaintextLength           = 0;
+    if (EVP_DecryptUpdate(ctx, plaintextBytes, &plaintextLength,
+                          (const unsigned char*)ciphertext.c_str(),
+                          ciphertextLength) != 1)
+    {
+        delete[] plaintextBytes;
+        EVP_CIPHER_CTX_free(ctx);
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        return false;
+    }
+    int plaintextFinalLength = 0;
+    if (EVP_DecryptFinal_ex(ctx, plaintextBytes + plaintextLength,
+                            &plaintextFinalLength) != 1)
+    {
+        delete[] plaintextBytes;
+        EVP_CIPHER_CTX_free(ctx);
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        return false;
+    }
+    plaintextLength += plaintextFinalLength;
+    plaintext.assign((const char*)plaintextBytes, plaintextLength);
+    delete[] plaintextBytes;
+    EVP_CIPHER_CTX_free(ctx);
+
+    return true;
+}
+
+std::string aes256encrypt(const std::string &input, const std::string &key)
+{
+    std::string encryptedPacket;
+    std::string iv = generateKey(key.size());
+
+    if (aes256encryptHelper(input, key, iv, encryptedPacket)) {
+        std::string output = iv;
+        output.append(encryptedPacket);
+        return output;
+    }
+    return {};
+}
+
+std::string aes256decrypt(const std::string &input, const std::string &key)
+{
+    std::string encryptedPacket = input;
+
+    std::string iv = encryptedPacket.substr(0, key.size());
+    encryptedPacket.erase(0, key.size());
+
+    std::string output;
+    if (aes256decryptHelper(encryptedPacket, key, iv, output)) {
+        return output;
+    }
+    return {};
+}
+
+std::string getEncryptionErrorText()
+{
+    return global_encryptionErrorText;
+}
+
+#ifdef QT_CORE_LIB
 QByteArray encryptAes256Cbc(const QByteArray& plainText, QByteArray key) {
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
-        return QByteArray();
-
-    auto iv = generateSecureIV();
-
-    if (key.size() > 32) {
-        auto separatedKeyData = key.mid(32);
-        key = key.mid(0, 32);
-    } else if (key.size() < 32) {
-        std::fill_n(std::back_inserter(key), 32 - key.size(), 0);
-    }
-
-    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL,
-                           reinterpret_cast<const unsigned char*>(key.data()),
-                           reinterpret_cast<const unsigned char*>(iv.data())) !=
-        1) {
-        return QByteArray();
-    }
-
-    QByteArray cipherText;
-    cipherText.resize(plainText.size() + AES_BLOCK_SIZE);
-    int len = 0;
-    int cipherTextLen = 0;
-
-    if (EVP_EncryptUpdate(
-            ctx, reinterpret_cast<unsigned char*>(cipherText.data()), &len,
-            reinterpret_cast<const unsigned char*>(plainText.data()),
-            plainText.size()) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
-        return QByteArray();
-    }
-    cipherTextLen = len;
-
-    if (EVP_EncryptFinal_ex(
-            ctx, reinterpret_cast<unsigned char*>(cipherText.data()) + len,
-            &len) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
-        return QByteArray();
-    }
-    cipherTextLen += len;
-    cipherText.resize(cipherTextLen);
-
-    EVP_CIPHER_CTX_free(ctx);
-    return iv + cipherText;
+    return QByteArray::fromStdString(aes256encrypt(plainText.toStdString(), key.toStdString()));
 }
 
-QByteArray decryptAes256Cbc(QByteArray cipherText, QByteArray key) {
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!ctx)
-        return QByteArray();
-
-    // Get IV
-    auto iv = cipherText.mid(0, 15);
-    cipherText = cipherText.mid(16);
-
-    if (key.size() > 32) {
-        auto separatedKeyData = key.mid(32);
-        key = key.mid(0, 32);
-    } else if (key.size() < 32) {
-        std::fill_n(std::back_inserter(key), 32 - key.size(), 0);
-    }
-
-    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL,
-                           reinterpret_cast<const unsigned char*>(key.data()),
-                           reinterpret_cast<const unsigned char*>(iv.data())) !=
-        1) {
-        return QByteArray();
-    }
-
-    QByteArray plainText;
-    plainText.resize(cipherText.size());
-    int len = 0;
-    int plainTextLen = 0;
-
-    if (EVP_DecryptUpdate(
-            ctx, reinterpret_cast<unsigned char*>(plainText.data()), &len,
-            reinterpret_cast<const unsigned char*>(cipherText.data()),
-            cipherText.size()) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
-        return QByteArray();
-    }
-    plainTextLen = len;
-
-    if (EVP_DecryptFinal_ex(
-            ctx, reinterpret_cast<unsigned char*>(plainText.data()) + len,
-            &len) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
-        return QByteArray();
-    }
-    plainTextLen += len;
-    plainText.resize(plainTextLen);
-
-    EVP_CIPHER_CTX_free(ctx);
-    return plainText;
+QByteArray decryptAes256Cbc(const QByteArray& cipherText, QByteArray key) {
+    return QByteArray::fromStdString(aes256decrypt(cipherText.toStdString(), key.toStdString()));
 }
+#endif // QT_CORE_LIB
 
 }  // namespace Encryption

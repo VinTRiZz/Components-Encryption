@@ -1,26 +1,53 @@
 #pragma once
 
+#ifdef QT_CORE_LIB
 #include <QByteArray>
+#endif // QT_CORE_LIB
+
+#include <string>
 
 namespace Encryption {
 
-/**
- * @brief encryptAes256Cbc  Зашифровать текст с помощью AES-256
- * @param plainText         Текст для шифрования
- * @param key               Ключ для шифрования. Если меньше 32 байт, дополнится
- * нулями, иначе -- излишние символы будут через XOR применены к первым 32 байт
- * @return                  Зашифрованный текст или NULL QByteArray при ошибке
- */
-QByteArray encryptAes256Cbc(const QByteArray& plainText, QByteArray key);
+std::string generateKey(size_t lengthByte);
 
 /**
- * @brief decryptAes256Cbc  Дешифровать текст с помощью AES-256
- * @param plainText         Текст для дешифрования
- * @param key               Ключ для дешифрования. Если меньше 32 байт,
- * дополнится нулями, иначе -- излишние символы будут через XOR применены к
- * первым 32 байт
- * @return                  Дешифрованный текст или NULL QByteArray при ошибке
+ * @brief aes256encrypt     Зашифровать текст с помощью AES-256
+ * @param input             Текст для шифрования
+ * @param key               Ключ для дешифрования, 32 байт
+ * @return                  Зашифрованный текст или пустая std::string при ошибке
  */
-QByteArray decryptAes256Cbc(QByteArray cipherText, QByteArray key);
+std::string aes256encrypt(const std::string& input, const std::string& key);
+
+/**
+ * @brief aes256decrypt     Дешифровать зашифрованный с помощью AES-256 текст
+ * @param input             Текст для дешифровки
+ * @param key               Ключ для дешифрования, 32 байт
+ * @return                  Зашифрованный текст или пустая std::string при ошибке
+ */
+std::string aes256decrypt(const std::string& input, const std::string& key);
+
+/**
+ * @brief getEncryptionErrorText    Получить текст ошибки, в случае если она произошла
+ * @return
+ */
+std::string getEncryptionErrorText();
+
+#ifdef QT_CORE_LIB
+/**
+ * @brief qtEncryptAes256Cbc    Зашифровать текст с помощью AES-256
+ * @param plainText             Текст для шифрования
+ * @param key                   Ключ для дешифрования, 32 байт
+ * @return                      Зашифрованный текст или NULL QByteArray при ошибке
+ */
+QByteArray qtEncryptAes256Cbc(const QByteArray& plainText, QByteArray key);
+
+/**
+ * @brief qtDecryptAes256Cbc    Дешифровать зашифрованный с помощью AES-256 текст
+ * @param plainText             Текст для дешифрования
+ * @param key                   Ключ для дешифрования, 32 байт
+ * @return                      Дешифрованный текст или NULL QByteArray при ошибке
+ */
+QByteArray qtDecryptAes256Cbc(QByteArray cipherText, QByteArray key);
+#endif // QT_CORE_LIB
 
 }  // namespace Encryption
