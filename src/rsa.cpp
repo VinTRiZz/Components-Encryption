@@ -14,14 +14,33 @@ namespace Encryption
 {
 
 EVP_PKEY *rsaGenerateKeys() {
-    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
-    EVP_PKEY_keygen_init(ctx);
-    EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048);
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+    if (!ctx) {
+        global_encryptionErrorText = "Failed to create EVP_PKEY_CTX";
+        return nullptr;
+    }
 
-    EVP_PKEY* pkey = NULL;
-    EVP_PKEY_keygen(ctx, &pkey);
+    if (EVP_PKEY_keygen_init(ctx) <= 0) {
+        global_encryptionErrorText = "Failed to initialize keygen";
+        EVP_PKEY_CTX_free(ctx);
+        return nullptr;
+    }
+
+    if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048) <= 0) {
+        global_encryptionErrorText = "Failed to set key length";
+        EVP_PKEY_CTX_free(ctx);
+        return nullptr;
+    }
+
+    EVP_PKEY* key = nullptr;
+    if (EVP_PKEY_keygen(ctx, &key) <= 0) {
+        global_encryptionErrorText = "Failed to generate key pair";
+        EVP_PKEY_CTX_free(ctx);
+        return nullptr;
+    }
+
     EVP_PKEY_CTX_free(ctx);
-    return pkey; // Remember to EVP_PKEY_free(pkey) when done
+    return key;
 }
 
 bool rsaSavePublicKey(EVP_PKEY *pkey, std::string&filename) {
@@ -63,30 +82,39 @@ EVP_PKEY *rsaLoadPrivateKey(const std::string &filename, const std::string &pass
 bool rsaEncryptString(EVP_PKEY *publicKey, const std::string &plaintext, std::string &result) {
     EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(publicKey, NULL);
     if (!ctx || EVP_PKEY_encrypt_init(ctx) <= 0) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        global_encryptionErrorText = std::string("[INIT] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
     }
 
     // Set padding - OAEP padding is recommended for new applications :cite[1]
     if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        global_encryptionErrorText = std::string("[PADD] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
     }
 
     // Determine buffer size
     size_t ciphertext_len {0};
-    if (EVP_PKEY_encrypt(ctx, NULL, &ciphertext_len, reinterpret_cast<const unsigned char*>(plaintext.c_str()), plaintext.size()) <= 0) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_PKEY_encrypt(ctx,
+                         NULL,
+                         &ciphertext_len,
+                         reinterpret_cast<const unsigned char*>(plaintext.c_str()),
+                         plaintext.size()) <= 0) {
+        global_encryptionErrorText = std::string("[ENCS] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
     }
 
     // Perform encryption
-    result.reserve(ciphertext_len);
-    if (EVP_PKEY_encrypt(ctx, reinterpret_cast<unsigned char*>(result.data()), &ciphertext_len, reinterpret_cast<const unsigned char*>(plaintext.c_str()), plaintext.size()) <= 0) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    result.resize(ciphertext_len);
+    if (EVP_PKEY_encrypt(
+                ctx,
+                reinterpret_cast<unsigned char*>(result.data()),
+                &ciphertext_len,
+                reinterpret_cast<const unsigned char*>(plaintext.c_str()),
+                plaintext.size()) <= 0) {
+        global_encryptionErrorText = std::string("[ENCF] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
     }
@@ -98,30 +126,40 @@ bool rsaEncryptString(EVP_PKEY *publicKey, const std::string &plaintext, std::st
 bool rsaDecryptString(EVP_PKEY *privateKey, const std::string &ciphertext, std::string &result) {
     EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(privateKey, NULL);
     if (!ctx || EVP_PKEY_decrypt_init(ctx) <= 0) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        global_encryptionErrorText = std::string("[INIT] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
     }
 
     // Set padding - MUST match the padding used during encryption
     if (EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_OAEP_PADDING) <= 0) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        global_encryptionErrorText = std::string("[PADD] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
     }
 
     // Determine buffer size
     size_t plaintext_len {0};
-    if (EVP_PKEY_decrypt(ctx, NULL, &plaintext_len, reinterpret_cast<const unsigned char*>(ciphertext.c_str()), ciphertext.size()) <= 0) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_PKEY_decrypt(
+                ctx,
+                NULL,
+                &plaintext_len,
+                reinterpret_cast<const unsigned char*>(ciphertext.c_str()),
+                ciphertext.size()) <= 0) {
+        global_encryptionErrorText = std::string("[DECS] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
     }
 
     // Perform decryption
-    result.reserve(plaintext_len);
-    if (EVP_PKEY_decrypt(ctx, reinterpret_cast<unsigned char*>(result.data()), &plaintext_len, reinterpret_cast<const unsigned char*>(ciphertext.c_str()), ciphertext.size()) <= 0) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    result.resize(plaintext_len);
+    if (EVP_PKEY_decrypt(
+                ctx,
+                reinterpret_cast<unsigned char*>(result.data()),
+                &plaintext_len,
+                reinterpret_cast<const unsigned char*>(ciphertext.c_str()),
+                ciphertext.size()) <= 0) {
+        global_encryptionErrorText = std::string("[DECF] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
     }
