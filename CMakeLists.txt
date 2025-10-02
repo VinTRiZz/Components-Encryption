@@ -49,6 +49,9 @@ find_package(Qt5 REQUIRED COMPONENTS Core)
 set(
     TARGET_LINKED_LIBS
     Qt5::Core
+    ssl
+    crypto
+    sodium
 )
 
 # Qt configuration
