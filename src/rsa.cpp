@@ -9,6 +9,7 @@
 #include <fstream>
 
 #include <Components/Filework/Common.h>
+#include "encoding.hpp"
 
 namespace Encryption
 {
@@ -43,14 +44,14 @@ EVP_PKEY *rsaGenerateKeys() {
     return key;
 }
 
-bool rsaSavePublicKey(EVP_PKEY *pkey, std::string&filename) {
+bool rsaSavePublicKey(EVP_PKEY *pkey, const std::string& filename) {
     FILE* fp = fopen(filename.c_str(), "wb");
     auto writeByteCount = PEM_write_PUBKEY(fp, pkey);
     fclose(fp);
     return (writeByteCount != 0);
 }
 
-bool rsaSavePrivateKey(EVP_PKEY *pkey, const std::string &filename)
+bool rsaSavePrivateKey(EVP_PKEY *pkey, const std::string& filename)
 {
     FILE* pkey_file = fopen(filename.c_str(), "wb");
     if (!pkey_file) {
@@ -63,14 +64,14 @@ bool rsaSavePrivateKey(EVP_PKEY *pkey, const std::string &filename)
 }
 
 
-EVP_PKEY *rsaLoadPublicKey(const std::string &filename) {
+EVP_PKEY *rsaReadPublicKey(const std::string &filename) {
     FILE* fp = fopen(filename.c_str(), "rb");
     EVP_PKEY* pkey = PEM_read_PUBKEY(fp, NULL, NULL, NULL);
     fclose(fp);
     return pkey;
 }
 
-EVP_PKEY *rsaLoadPrivateKey(const std::string &filename, const std::string &passphrase) {
+EVP_PKEY *rsaReadPrivateKey(const std::string &filename, const std::string &passphrase) {
     FILE* fp = fopen(filename.c_str(), "rb");
     // Pass passphrase if the key is encrypted
     EVP_PKEY* pkey = PEM_read_PrivateKey(fp, NULL, NULL, (void*)passphrase.c_str());
@@ -117,6 +118,9 @@ bool rsaEncryptString(EVP_PKEY *publicKey, const std::string &plaintext, std::st
         global_encryptionErrorText = std::string("[ENCF] ") + ERR_error_string(ERR_get_error(), nullptr);
         EVP_PKEY_CTX_free(ctx);
         return false;
+    }
+    if (result.size() % 256) {
+        std::fill_n(std::back_inserter(result), result.size() % 256, 0x0);
     }
 
     EVP_PKEY_CTX_free(ctx);
@@ -194,14 +198,23 @@ bool rsaEncryptFile(const std::string &targetFile, const std::string &pubkeyPath
         return false;
     }
 
-    auto rsaPublicKey = rsaLoadPublicKey(pubkeyPath);
-
-    std::string res;
-    if (!rsaEncryptString(rsaPublicKey, fileData, res)) {
+    auto rsaPublicKey = rsaReadPublicKey(pubkeyPath);
+    if (NULL == rsaPublicKey) {
+        global_encryptionErrorText = "Failed to load public key";
         return false;
     }
 
-    if (!Filework::Common::replaceFileData(targetFile, res)) {
+    std::string res;
+    const int blockSize = 211;
+    for (auto currentPos = fileData.begin(); currentPos < fileData.end(); currentPos += blockSize) {
+        std::string block;
+        if (!rsaEncryptString(rsaPublicKey, std::string(currentPos, currentPos + blockSize), block)) {
+            return false;
+        }
+        res += block;
+    }
+
+    if (!Filework::Common::replaceFileData(targetFile, encodeHex(res))) {
         global_encryptionErrorText = "Failed to write file data";
         return false;
     }
@@ -216,12 +229,22 @@ bool rsaDecryptFile(const std::string &targetFile, const std::string &privkeyPat
         global_encryptionErrorText = "Failed to read file data";
         return false;
     }
+    fileData = decodeHex(fileData);
 
-    auto rsaPrivateKey = rsaLoadPrivateKey(privkeyPath, pass);
+    auto rsaPrivateKey = rsaReadPrivateKey(privkeyPath, pass);
+    if (NULL == rsaPrivateKey) {
+        global_encryptionErrorText = "Failed to load private key";
+        return false;
+    }
 
     std::string res;
-    if (!rsaDecryptString(rsaPrivateKey, fileData, res)) {
-        return false;
+    const int blockSize = 256;
+    for (auto currentPos = fileData.begin(); currentPos < fileData.end(); currentPos += blockSize) {
+        std::string block;
+        if (!rsaDecryptString(rsaPrivateKey, std::string(currentPos, currentPos + blockSize), block)) {
+            return false;
+        }
+        res += block;
     }
 
     if (!Filework::Common::replaceFileData(targetFile, res)) {

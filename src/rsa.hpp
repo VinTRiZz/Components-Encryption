@@ -21,8 +21,8 @@ EVP_PKEY* rsaGenerateKeys();
 bool rsaSavePublicKey(EVP_PKEY* pkey, const std::string& filename);
 bool rsaSavePrivateKey(EVP_PKEY* pkey, const std::string& filename);
 
-EVP_PKEY* rsaLoadPublicKey(const std::string& filename);
-EVP_PKEY* rsaLoadPrivateKey(const std::string& filename, const std::string& passphrase);
+EVP_PKEY* rsaReadPublicKey(const std::string& filename);
+EVP_PKEY* rsaReadPrivateKey(const std::string& filename, const std::string& passphrase = {});
 
 bool rsaEncryptString(EVP_PKEY* publicKey, const std::string& plaintext, std::string& result);
 bool rsaDecryptString(EVP_PKEY* privateKey, const std::string& ciphertext, std::string& result);
@@ -30,7 +30,7 @@ bool rsaDecryptString(EVP_PKEY* privateKey, const std::string& ciphertext, std::
 std::string rsaKeyToString(EVP_PKEY* privateKey);
 
 bool rsaEncryptFile(const std::string& targetFile, const std::string& pubkeyPath);
-bool rsaDecryptFile(const std::string& targetFile, const std::string& privkeyPath, const std::string& pass);
+bool rsaDecryptFile(const std::string& targetFile, const std::string& privkeyPath, const std::string& pass = {});
 
 }
 

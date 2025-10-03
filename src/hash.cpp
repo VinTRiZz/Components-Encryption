@@ -1,20 +1,35 @@
 #include "hash.hpp"
 
+#ifdef QT_CORE_LIB
+#include <QByteArray>
+#include <QDebug>
+#endif // QT_CORE_LIB
+
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 
-#include <QByteArray>
-#include <QDebug>
 #include <iomanip>
 #include <random>
+
+#include <Components/Filework/Common.h>
 
 // OpenSSL engine implementation
 #define OPENSSL_ENGINE NULL
 
 namespace Encryption {
 
+#ifdef QT_CORE_LIB
 QByteArray qtSha256(QByteArray txt) {
-    auto input = txt.toStdString();
+    return sha256(txt.toStdString()).c_str();
+}
+#endif // QT_CORE_LIB
+
+std::string sha256(const std::string& input)
+{
+    if (input.empty()) {
+        return "";
+    }
+
     std::shared_ptr<EVP_MD_CTX> context(EVP_MD_CTX_new(), [](auto* ctx) {
         if (ctx)
             EVP_MD_CTX_free(ctx);
@@ -41,54 +56,16 @@ QByteArray qtSha256(QByteArray txt) {
     return ss.str().c_str();
 }
 
-std::string sha256(const std::string& input)
+std::string sha256file(const std::string &filepath)
 {
-    if (input.empty()) {
-        return "";
+    std::string fileData;
+
+    if (!Filework::Common::readFileData(filepath, fileData)) {
+        throw std::invalid_argument("sha256file: Invalid filepath");
+        return {};
     }
 
-    // Create a buffer to hold the hash
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-
-    // Compute the SHA-256 hash
-    SHA256(reinterpret_cast<const unsigned char*>(input.c_str()), input.size(),
-           hash);
-
-    // Convert the hash to a hexadecimal string
-    std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i)
-    {
-        ss << std::setw(2) << std::setfill('0') << std::hex
-           << static_cast<int>(hash[i]);
-    }
-    return ss.str();
-
-    //    EVP_MD_CTX *mdctx = EVP_MD_CTX_new(); // Create a new context
-    //    const EVP_MD *md = EVP_sha256(); // Get the SHA-256 algorithm
-    //    std::vector<unsigned char> hash(EVP_MD_size(md)); // Prepare a vector
-    //    to hold the hash
-
-    //    if (mdctx == nullptr || md == nullptr ||
-    //        EVP_DigestInit_ex(mdctx, md, nullptr) != 1 || // Initialize the
-    //        digest EVP_DigestUpdate(mdctx, input.c_str(), input.size()) != 1
-    //        ||
-    //        // Update the digest with the input EVP_DigestFinal_ex(mdctx,
-    //        hash.data(), nullptr) != 1) { // Finalize the digest
-
-    //        // Handle errors here (e.g. throw an exception or return an error
-    //        code) EVP_MD_CTX_free(mdctx); LOG_ERROR("Failed to compute hash");
-    //        return "";
-    //    }
-
-    //    EVP_MD_CTX_free(mdctx); // Clean up the context
-
-    //    // Convert the hash to a hex string
-    //    std::stringstream ss;
-    //    for (unsigned char byte : hash) {
-    //        ss << std::hex << std::setw(2) << std::setfill('0') << (int)byte;
-    //    }
-
-    //    return ss.str();
+    return sha256(fileData);
 }
 
 }  // namespace Encryption
