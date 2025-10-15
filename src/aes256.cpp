@@ -138,9 +138,9 @@ bool aes256decryptHelper(std::string& ciphertext,
 std::string aes256encrypt(const std::string &input, const std::string &key)
 {
     std::string encryptedPacket;
-    std::string iv = generateKey(key.size());
+    std::string iv = generateKey(64);
 
-    if (aes256encryptHelper(input, key, iv, encryptedPacket)) {
+    if (aes256encryptHelper(input, fixKey(key), iv, encryptedPacket)) {
         std::string output = iv;
         output.append(encryptedPacket);
         return output;
@@ -150,13 +150,12 @@ std::string aes256encrypt(const std::string &input, const std::string &key)
 
 std::string aes256decrypt(const std::string &input, const std::string &key)
 {
-    std::string encryptedPacket = input;
-
-    std::string iv = encryptedPacket.substr(0, key.size());
-    encryptedPacket.erase(0, key.size());
+    auto encryptedPacket = input;
+    std::string iv = encryptedPacket.substr(0, 64);
+    encryptedPacket.erase(0, 64);
 
     std::string output;
-    if (aes256decryptHelper(encryptedPacket, key, iv, output)) {
+    if (aes256decryptHelper(encryptedPacket, fixKey(key), iv, output)) {
         return output;
     }
     return {};
@@ -170,6 +169,20 @@ QByteArray qtEncryptAes256Cbc(const QByteArray& plainText, QByteArray key) {
 QByteArray qtDecryptAes256Cbc(const QByteArray& cipherText, QByteArray key) {
     return QByteArray::fromStdString(aes256decrypt(cipherText.toStdString(), key.toStdString()));
 }
+
+std::string fixKey(const std::string &key)
+{
+    std::string keyFixed = key;
+    if (key.size() > 32) {
+        for (int i = 32; i < key.size() - 32; ++i) {
+            keyFixed[i % 32] ^= key[i];
+        }
+    } else if (keyFixed.size() < 32) {
+        std::fill_n(std::back_inserter(keyFixed), 32 - keyFixed.size(), 0x00);
+    }
+    return keyFixed;
+}
+
 #endif // QT_CORE_LIB
 
 }  // namespace Encryption

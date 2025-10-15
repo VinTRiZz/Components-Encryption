@@ -16,6 +16,8 @@ namespace Encryption {
 
 std::string generateKey(size_t lengthByte);
 
+std::string fixKey(const std::string& key);
+
 /**
  * @brief aes256encrypt     Зашифровать текст с помощью AES-256
  * @param input             Текст для шифрования
