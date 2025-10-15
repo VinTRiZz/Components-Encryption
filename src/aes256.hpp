@@ -48,7 +48,7 @@ QByteArray qtEncryptAes256Cbc(const QByteArray& plainText, QByteArray key);
  * @param key                   Ключ для дешифрования, 32 байт
  * @return                      Дешифрованный текст или NULL QByteArray при ошибке
  */
-QByteArray qtDecryptAes256Cbc(QByteArray cipherText, QByteArray key);
+QByteArray qtDecryptAes256Cbc(const QByteArray& cipherText, QByteArray key);
 #endif // QT_CORE_LIB
 
 }  // namespace Encryption

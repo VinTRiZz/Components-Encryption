@@ -163,11 +163,11 @@ std::string aes256decrypt(const std::string &input, const std::string &key)
 }
 
 #ifdef QT_CORE_LIB
-QByteArray encryptAes256Cbc(const QByteArray& plainText, QByteArray key) {
+QByteArray qtEncryptAes256Cbc(const QByteArray& plainText, QByteArray key) {
     return QByteArray::fromStdString(aes256encrypt(plainText.toStdString(), key.toStdString()));
 }
 
-QByteArray decryptAes256Cbc(const QByteArray& cipherText, QByteArray key) {
+QByteArray qtDecryptAes256Cbc(const QByteArray& cipherText, QByteArray key) {
     return QByteArray::fromStdString(aes256decrypt(cipherText.toStdString(), key.toStdString()));
 }
 #endif // QT_CORE_LIB
