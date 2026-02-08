@@ -10,6 +10,7 @@
 
 #include <iomanip>
 #include <random>
+#include <memory>
 
 #include <Components/Filework/Common.h>
 

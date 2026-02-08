@@ -4,10 +4,13 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 
-#include <QByteArray>
-#include <QDebug>
 #include <iomanip>
 #include <random>
+
+#ifdef QT_CORE_LIB
+#include <QByteArray>
+#include <QDebug>
+#endif // QT_CORE_LIB
 
 namespace Encryption {
 
