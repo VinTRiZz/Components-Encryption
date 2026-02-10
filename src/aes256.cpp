@@ -14,6 +14,19 @@
 
 namespace Encryption {
 
+std::string fixKey(const std::string &key)
+{
+    std::string keyFixed = key;
+    if (key.size() > 32) {
+        for (int i = 32; i < key.size() - 32; ++i) {
+            keyFixed[i % 32] ^= key[i];
+        }
+    } else if (keyFixed.size() < 32) {
+        std::fill_n(std::back_inserter(keyFixed), 32 - keyFixed.size(), 0x00);
+    }
+    return keyFixed;
+}
+
 std::string generateKey(size_t lengthByte)
 {
     std::string result;
@@ -171,19 +184,6 @@ QByteArray qtEncryptAes256Cbc(const QByteArray& plainText, QByteArray key) {
 
 QByteArray qtDecryptAes256Cbc(const QByteArray& cipherText, QByteArray key) {
     return QByteArray::fromStdString(aes256decrypt(cipherText.toStdString(), key.toStdString()));
-}
-
-std::string fixKey(const std::string &key)
-{
-    std::string keyFixed = key;
-    if (key.size() > 32) {
-        for (int i = 32; i < key.size() - 32; ++i) {
-            keyFixed[i % 32] ^= key[i];
-        }
-    } else if (keyFixed.size() < 32) {
-        std::fill_n(std::back_inserter(keyFixed), 32 - keyFixed.size(), 0x00);
-    }
-    return keyFixed;
 }
 
 #endif // QT_CORE_LIB
