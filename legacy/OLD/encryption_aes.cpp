@@ -51,7 +51,7 @@ std::string sha256(const std::string &input)
     //        hash.data(), nullptr) != 1) { // Finalize the digest
 
     //        // Handle errors here (e.g. throw an exception or return an error
-    //        code) EVP_MD_CTX_free(mdctx); LOG_ERROR("Failed to compute hash");
+    //        code) EVP_MD_CTX_free(mdctx); COMPLOG_ERROR("Failed to compute hash");
     //        return "";
     //    }
 
