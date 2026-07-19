@@ -5,7 +5,7 @@
 /// **************************************************************************** ///
 
 #include <string>
-#include <vector>
+#include <optional>
 
 #include "common.hpp"
 
@@ -24,10 +24,12 @@ bool rsaSavePrivateKey(EVP_PKEY* pkey, const std::string& filename);
 EVP_PKEY* rsaReadPublicKey(const std::string& filename);
 EVP_PKEY* rsaReadPrivateKey(const std::string& filename, const std::string& passphrase = {});
 
-bool rsaEncryptString(EVP_PKEY* publicKey, const std::string& plaintext, std::string& result);
-bool rsaDecryptString(EVP_PKEY* privateKey, const std::string& ciphertext, std::string& result);
+std::optional<std::string> rsaEncryptString(EVP_PKEY* publicKey, const std::string& plaintext);
+std::optional<std::string> rsaDecryptString(EVP_PKEY* privateKey, const std::string& ciphertext);
 
-std::string rsaKeyToString(EVP_PKEY* privateKey);
+// PEM format only
+std::string rsaKeyToString(EVP_PKEY* pubKey);
+EVP_PKEY* rsaKeyFromString(const std::string& pubKey);
 
 bool rsaEncryptFile(const std::string& targetFile, const std::string& pubkeyPath);
 bool rsaDecryptFile(const std::string& targetFile, const std::string& privkeyPath, const std::string& pass = {});
