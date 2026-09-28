@@ -154,6 +154,8 @@ bool aes256decryptHelper(std::string& ciphertext,
 
 std::string aes256encrypt(const std::string &input, const std::string &key)
 {
+    if (input.empty()) { return {}; }
+
     std::string encryptedPacket;
     std::string iv = generateKey(64);
 
@@ -167,6 +169,8 @@ std::string aes256encrypt(const std::string &input, const std::string &key)
 
 std::string aes256decrypt(const std::string &input, const std::string &key)
 {
+    if (input.empty()) { return {}; }
+
     auto encryptedPacket = input;
     std::string iv = encryptedPacket.substr(0, 64);
     encryptedPacket.erase(0, 64);
