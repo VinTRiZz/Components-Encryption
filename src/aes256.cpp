@@ -21,6 +21,7 @@ std::string fixKey(const std::string &key)
         for (int i = 32; i < key.size() - 32; ++i) {
             keyFixed[i % 32] ^= key[i];
         }
+        keyFixed.erase(keyFixed.begin() + 32, keyFixed.end());
     } else if (keyFixed.size() < 32) {
         std::fill_n(std::back_inserter(keyFixed), 32 - keyFixed.size(), 0x00);
     }
