@@ -14,3 +14,6 @@ else()
 endif()
 
 COMPONENTS_LINK_COMPONENT(Encryption Filework)
+COMPONENTS_LINK_COMPONENT(Encryption ExtraClasses)
+
+COMPONENTS_ADD_COMPONENT_TEST(Encryption)

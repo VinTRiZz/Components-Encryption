@@ -5,6 +5,7 @@
 /// **************************************************************************** ///
 
 #include <string>
+#include <memory>
 #include <optional>
 
 #include "common.hpp"
@@ -17,21 +18,31 @@ typedef struct evp_pkey_st EVP_PKEY; // For OpenSSL RSA
 namespace Encryption
 {
 
-EVP_PKEY* rsaGenerateKeys();
-bool rsaSavePublicKey(EVP_PKEY* pkey, const std::string& filename);
-bool rsaSavePrivateKey(EVP_PKEY* pkey, const std::string& filename);
+using RSAKeysPtr = std::shared_ptr<EVP_PKEY>;
 
-EVP_PKEY* rsaReadPublicKey(const std::string& filename);
-EVP_PKEY* rsaReadPrivateKey(const std::string& filename, const std::string& passphrase = {});
+// Key generating
+RSAKeysPtr rsaGenerateKeys();
 
-std::optional<std::string> rsaEncryptString(EVP_PKEY* publicKey, const std::string& plaintext);
-std::optional<std::string> rsaDecryptString(EVP_PKEY* privateKey, const std::string& ciphertext);
+// Key save / load functions
+bool rsaSavePublicKey(const RSAKeysPtr& pkey, const std::string& filename);
+bool rsaSavePrivateKey(const RSAKeysPtr& pkey, const std::string& filename, const std::string& passphrase = {});
+RSAKeysPtr rsaReadPublicKey(const std::string& filename);
+RSAKeysPtr rsaReadPrivateKey(const std::string& filename, const std::string& passphrase = {});
+
+// Encryption
+std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const std::string& plaintext);
+std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const std::string& ciphertext);
 
 // PEM format only
-std::string rsaKeyToString(EVP_PKEY* pubKey);
-EVP_PKEY* rsaKeyFromString(const std::string& pubKey);
+std::string rsaKeyToString(const RSAKeysPtr& pubKey);
+RSAKeysPtr rsaKeyFromString(const std::string& pubKey);
 
+// File encryption
+bool rsaEncryptFile(const std::string& targetFile, const RSAKeysPtr& pubkey);
 bool rsaEncryptFile(const std::string& targetFile, const std::string& pubkeyPath);
+
+// File decryption
+bool rsaDecryptFile(const std::string& targetFile, const RSAKeysPtr& privkey);
 bool rsaDecryptFile(const std::string& targetFile, const std::string& privkeyPath, const std::string& pass = {});
 
 }
