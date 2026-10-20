@@ -1,19 +1,13 @@
+COMPONENTS_CONFIGURE_COMPONENT(Encryption "1.0.0"
+    ssl
+    crypto
+    sodium
+)
 if (COMPONENTS_IS_ENABLED_QT)
-    COMPONENTS_CONFIGURE_COMPONENT(Encryption
-        Qt5::Core
-        ssl
-        crypto
-        sodium
-    )
-else()
-    COMPONENTS_CONFIGURE_COMPONENT(Encryption
-        ssl
-        crypto
-        sodium
-    )
+    target_link_libraries(Components-Encryption PRIVATE Qt5::Core)
 endif()
 
-COMPONENTS_LINK_COMPONENT(Encryption Filework)
-COMPONENTS_LINK_COMPONENT(Encryption ExtraClasses)
+COMPONENTS_LINK_COMPONENT(Components-Encryption Filework)
+COMPONENTS_LINK_COMPONENT(Components-Encryption ExtraClasses)
 
 COMPONENTS_ADD_COMPONENT_TEST(Encryption)
