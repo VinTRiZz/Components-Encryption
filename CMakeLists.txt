@@ -3,11 +3,14 @@ COMPONENTS_CONFIGURE_COMPONENT(Encryption "1.0.0"
     crypto
     sodium
 )
+COMPONENTS_CCR_CONAN_IS_CONFIGURED(COMPONENTS_CONAN_CONFIGURED)
+if (COMPONENTS_CONAN_CONFIGURED)
+    COMPONENTS_CCR_CONAN_REQUIRE(Sodium)
+endif()
+COMPONENTS_LINK_COMPONENT(Components-Encryption Core)
+COMPONENTS_LINK_COMPONENT(Components-Encryption ExtraClasses)
+COMPONENTS_LINK_COMPONENT(Components-Encryption Filework)
 if (COMPONENTS_IS_ENABLED_QT)
     target_link_libraries(Components-Encryption PRIVATE Qt5::Core)
 endif()
-
-COMPONENTS_LINK_COMPONENT(Components-Encryption Filework)
-COMPONENTS_LINK_COMPONENT(Components-Encryption ExtraClasses)
-
 COMPONENTS_ADD_COMPONENT_TEST(Encryption)
