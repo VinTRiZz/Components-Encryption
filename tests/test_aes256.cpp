@@ -20,12 +20,16 @@ void checkStringCBC(const std::string& sample, const std::string& key) {
 void checkStringGCM(const std::string& sample, const std::string& key) {
     auto encStr = Encryption::aes256_gcm_encrypt(sample, key);
     ASSERT_TRUE(encStr.has_value());
-
     auto decStr = Encryption::aes256_gcm_decrypt(encStr.value(), key);
     ASSERT_TRUE(encStr.has_value());
 
     ASSERT_NE(sample, encStr);
     ASSERT_EQ(sample, decStr);
+
+    auto invalidDecStr = Encryption::aes256_gcm_decrypt(encStr.value(), key, Encryption::generateBytes(29));
+    ASSERT_FALSE(invalidDecStr.has_value());
+
+    // ======================== //
 
     const std::string aad {Encryption::generateBytes(163)};
     encStr = Encryption::aes256_gcm_encrypt(sample, key, aad);
@@ -35,6 +39,9 @@ void checkStringGCM(const std::string& sample, const std::string& key) {
 
     ASSERT_NE(sample, encStr);
     ASSERT_EQ(sample, decStr);
+
+    invalidDecStr = Encryption::aes256_gcm_decrypt(encStr.value(), key, Encryption::generateBytes(29));
+    ASSERT_FALSE(invalidDecStr.has_value());
 }
 
 }

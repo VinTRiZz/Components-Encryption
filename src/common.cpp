@@ -46,4 +46,16 @@ std::string generateSybmols(const size_t lengthByte)
     return result;
 }
 
+void aes256_fixKeySize(std::string &key)
+{
+    if (key.size() > 32) {
+        for (int i = 32; i < key.size() - 32; ++i) {
+            key[i % 32] ^= key[i];
+        }
+        key.erase(key.begin() + 32, key.end());
+    } else if (key.size() < 32) {
+        std::fill_n(std::back_inserter(key), 32 - key.size(), 0x00);
+    }
+}
+
 }
