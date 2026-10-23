@@ -1,59 +1,21 @@
 #include "aes256.hpp"
 
 #include <openssl/aes.h>  // Для AES_BLOCK_SIZE
-#include <openssl/err.h>
 #include <openssl/evp.h>
-
-#include <iomanip>
-#include <random>
-
-#ifdef QT_CORE_LIB
-#include <QByteArray>
-#include <QDebug>
-#endif // QT_CORE_LIB
+#include <openssl/err.h>
 
 namespace Encryption {
 
-std::string fixKey(const std::string &key)
+bool aes256_cbc_encryptHelper(const std::string& plaintext,
+                              const std::string& key,
+                              const std::string& iv,
+                              std::string& ciphertext)
 {
-    std::string keyFixed = key;
-    if (key.size() > 32) {
-        for (int i = 32; i < key.size() - 32; ++i) {
-            keyFixed[i % 32] ^= key[i];
-        }
-        keyFixed.erase(keyFixed.begin() + 32, keyFixed.end());
-    } else if (keyFixed.size() < 32) {
-        std::fill_n(std::back_inserter(keyFixed), 32 - keyFixed.size(), 0x00);
-    }
-    return keyFixed;
-}
-
-std::string generateKey(size_t lengthByte)
-{
-    std::string result;
-    char test_symbol;
-
-    std::random_device rd;
-    std::mt19937 rng(rd());
-    std::uniform_int_distribution<int> uni(0, 255);
-
-    for (int8_t i = 0; result.size() < lengthByte; i++)
-    {
-        test_symbol = uni(rng);
-        if ((test_symbol > 32) || (test_symbol < 0))
-        {
-            result += test_symbol;
-        }
+    if (key.size() != 32) {
+        global_encryptionErrorText = "Key size is invalid (expected 32 bytes)";
+        return false;
     }
 
-    return result;
-}
-
-bool aes256encryptHelper(const std::string& plaintext,
-                                       const std::string& key,
-                                       const std::string& iv,
-                                       std::string& ciphertext)
-{
     const EVP_CIPHER* cipher = EVP_get_cipherbyname("aes-256-cbc");
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
@@ -100,11 +62,16 @@ bool aes256encryptHelper(const std::string& plaintext,
     return true;
 }
 
-bool aes256decryptHelper(std::string& ciphertext,
-                                       const std::string& key,
-                                       const std::string& iv,
-                                       std::string& plaintext)
+bool aes256_cbc_decryptHelper(std::string& ciphertext,
+                              const std::string& key,
+                              const std::string& iv,
+                              std::string& plaintext)
 {
+    if (key.size() != 32) {
+        global_encryptionErrorText = "Key size is invalid (expected 32 bytes)";
+        return false;
+    }
+
     // Указываем параметры алгоритма шифрования
     const EVP_CIPHER* cipher = EVP_get_cipherbyname("aes-256-cbc");
 
@@ -152,14 +119,14 @@ bool aes256decryptHelper(std::string& ciphertext,
     return true;
 }
 
-std::string aes256encrypt(const std::string &input, const std::string &key)
+std::optional<std::string> aes256_cbc_encrypt(const std::string &input, const std::string &key)
 {
     if (input.empty()) { return {}; }
 
     std::string encryptedPacket;
-    std::string iv = generateKey(64);
+    std::string iv = generateBytes(64);
 
-    if (aes256encryptHelper(input, fixKey(key), iv, encryptedPacket)) {
+    if (aes256_cbc_encryptHelper(input, key, iv, encryptedPacket)) {
         std::string output = iv;
         output.append(encryptedPacket);
         return output;
@@ -167,7 +134,7 @@ std::string aes256encrypt(const std::string &input, const std::string &key)
     return {};
 }
 
-std::string aes256decrypt(const std::string &input, const std::string &key)
+std::optional<std::string> aes256_cbc_decrypt(const std::string &input, const std::string &key)
 {
     if (input.empty()) { return {}; }
 
@@ -176,21 +143,10 @@ std::string aes256decrypt(const std::string &input, const std::string &key)
     encryptedPacket.erase(0, 64);
 
     std::string output;
-    if (aes256decryptHelper(encryptedPacket, fixKey(key), iv, output)) {
+    if (aes256_cbc_decryptHelper(encryptedPacket, key, iv, output)) {
         return output;
     }
     return {};
 }
-
-#ifdef QT_CORE_LIB
-QByteArray qtEncryptAes256Cbc(const QByteArray& plainText, QByteArray key) {
-    return QByteArray::fromStdString(aes256encrypt(plainText.toStdString(), key.toStdString()));
-}
-
-QByteArray qtDecryptAes256Cbc(const QByteArray& cipherText, QByteArray key) {
-    return QByteArray::fromStdString(aes256decrypt(cipherText.toStdString(), key.toStdString()));
-}
-
-#endif // QT_CORE_LIB
 
 }  // namespace Encryption
