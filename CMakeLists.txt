@@ -1,15 +1,19 @@
 COMPONENTS_CONFIGURE_COMPONENT(Encryption "1.0.0"
-    ssl
     crypto
-    sodium
 )
-COMPONENTS_CCR_CONAN_IS_CONFIGURED(COMPONENTS_CONAN_CONFIGURED)
-if (COMPONENTS_CONAN_CONFIGURED)
-    COMPONENTS_CCR_CONAN_REQUIRE(Sodium)
-endif()
-COMPONENTS_LINK_COMPONENT(Components-Encryption ExtraClasses)
-COMPONENTS_LINK_COMPONENT(Components-Encryption Filework)
+option(COMPONENTS_SW_encryption_rsa "" OFF)
+option(COMPONENTS_SW_encryption_chacha "" OFF)
 if (COMPONENTS_IS_ENABLED_QT)
-    target_link_libraries(Components-Encryption PRIVATE Qt5::)
+    target_compile_definitions(Components-Encryption PRIVATE COMPONENTS_IS_ENABLED_QT)
+    target_link_libraries(Components-Encryption PRIVATE Qt5::Core)
+endif()
+if (COMPONENTS_SW_encryption_rsa)
+    target_compile_definitions(Components-Encryption PRIVATE COMPONENTS_SW_encryption_rsa)
+    COMPONENTS_LINK_COMPONENT(Components-Encryption ExtraClasses)
+    COMPONENTS_LINK_COMPONENT(Components-Encryption Filework)
+endif()
+if (COMPONENTS_SW_encryption_chacha)
+    target_compile_definitions(Components-Encryption PRIVATE COMPONENTS_SW_encryption_chacha)
+    target_link_libraries(Components-Encryption PRIVATE sodium)
 endif()
 COMPONENTS_ADD_COMPONENT_TEST(Encryption)

@@ -1,5 +1,7 @@
 #include "rsa.hpp"
 
+#ifdef COMPONENTS_SW_encryption_rsa
+
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
@@ -10,6 +12,8 @@
 
 #include <Components/Filework/TemporaryFile.h>
 #include <Components/ExtraClasses/DataFragmentator.h>
+
+#include <iostream>
 
 namespace Encryption
 {
@@ -135,7 +139,10 @@ RSAKeysPtr rsaReadPrivateKey(const std::string &filename, const std::string &pas
 }
 
 std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const std::string &plaintext) {
-    if (plaintext.empty()) { return {}; }
+    if (plaintext.empty()) {
+        global_encryptionErrorText = "Empty text to encrypt";
+        return {};
+    }
 
     const auto paddingType = RSA_PKCS1_OAEP_PADDING;
 
@@ -203,7 +210,10 @@ std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const s
 }
 
 std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const std::string &ciphertext) {
-    if (ciphertext.empty()) { return {}; }
+    if (ciphertext.empty()) {
+        global_encryptionErrorText = "Empty text to encrypt";
+        return {};
+    }
 
     const auto paddingType = RSA_PKCS1_OAEP_PADDING;
 
@@ -318,21 +328,15 @@ bool rsaEncryptFile(const std::string &targetFile, const RSAKeysPtr &pubkey)
         return 1;
     }
 
-    auto bufferSizeOpt = getDataChunkLength(pubkey, RSA_PKCS1_OAEP_PADDING);
-    if (!bufferSizeOpt.has_value()) {
-        global_encryptionErrorText = "Failed to determine data chunk size";
-        return false;
-    }
-
-    std::vector<char> buffer(bufferSizeOpt.value());
+    const auto BUFF_SIZE {4096}; // Idk what value is best
+    char buffer [BUFF_SIZE];
     while (inputFile) {
-        inputFile.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-        const std::streamsize got = inputFile.gcount();
-        if (got <= 0) { break; }
-        const auto chunkLen = static_cast<std::size_t>(got);
-        auto encData = rsaEncryptString(pubkey, std::string(buffer.data(), chunkLen));
+        auto readCnt = inputFile.readsome(buffer, BUFF_SIZE);
+        if (readCnt <= 0) { break; }
+        auto encData = rsaEncryptString(pubkey, std::string(buffer, readCnt));
         if (!encData.has_value()) { return false; }
-        tmpFile << *encData;
+        tmpFile.write(encData->c_str(), encData->size());
+        tmpFile.flush();
     }
 
     if (inputFile.bad()) {
@@ -365,18 +369,18 @@ bool rsaDecryptFile(const std::string &targetFile, const RSAKeysPtr &privkey)
     std::ifstream inputFile(targetFile, std::ios::binary);
     if (!inputFile) {
         global_encryptionErrorText = std::string("Failed to open target file: ") + strerror(errno);
-        return 1;
+        return false;
     }
 
-    std::vector<char> buffer(256); // 256 is size of RSA chunk
+    const auto BUFF_SIZE {12800};
+    char buffer [BUFF_SIZE]; // 256 is size of RSA chunk
     while (inputFile) {
-        inputFile.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-        const std::streamsize got = inputFile.gcount();
-        if (got <= 0) { break; }
-        const auto chunkLen = static_cast<std::size_t>(got);
-        auto decData = rsaDecryptString(privkey, std::string(buffer.data(), chunkLen));
+        auto readCnt = inputFile.readsome(buffer, BUFF_SIZE);
+        if (readCnt <= 0) { break; }
+        auto decData = rsaDecryptString(privkey, std::string(buffer, readCnt));
         if (!decData.has_value()) { return false; }
-        tmpFile << *decData;
+        tmpFile.write(decData->c_str(), decData->size());
+        tmpFile.flush();
     }
 
     if (inputFile.bad()) {
@@ -403,3 +407,5 @@ bool rsaDecryptFile(const std::string &targetFile, const std::string &privkeyPat
 }
 
 }
+
+#endif // COMPONENTS_SW_encryption_rsa

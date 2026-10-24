@@ -1,5 +1,7 @@
 #pragma once
 
+#ifdef COMPONENTS_SW_encryption_chacha
+
 /// **************************************************************************** ///
 /// *************************** ChaCha20 algorithm ***************************** ///
 /// **************************************************************************** ///
@@ -41,3 +43,4 @@ bool chacha20_decrypt(const std::string & encryptedText, const std::string & key
 
 }
 
+#endif // COMPONENTS_SW_encryption_chacha

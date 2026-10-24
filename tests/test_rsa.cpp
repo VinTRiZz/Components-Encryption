@@ -1,40 +1,26 @@
 #include <gtest/gtest.h>
 
+#ifdef COMPONENTS_SW_encryption_rsa
+
 #include <Components/Encryption/RSA.h>
 #include <Components/Filework/Common.h>
 #include <Components/Filework/TemporaryFile.h>
 
 #include <filesystem>
-#include <algorithm>
-#include <cstddef>
-#include <random>
 #include <string>
 
 #include <openssl/pem.h>
 
-namespace {
-
-std::string randomBytes(std::size_t len) {
-    static std::mt19937_64 rng{std::random_device{}()};
-    std::uniform_int_distribution<int> dist(0, 255);
-    std::string s(len, '\0');
-    std::generate(s.begin(), s.end(),
-                  [&] { return static_cast<char>(dist(rng)); });
-    return s;
-}
-
-}
-
-TEST(Encryption, RSA_Init) {
+TEST(Components_Encryption, RSA_Init) {
     auto key = Encryption::rsaGenerateKeys();
     ASSERT_NE(key, nullptr);
 }
 
-TEST(Encryption, RSA_StringSizes) {
+TEST(Components_Encryption, RSA_StringSizes) {
     auto key = Encryption::rsaGenerateKeys();
 
     // Small strings
-    auto sample = randomBytes(5);
+    auto sample = Encryption::generateBytes(5);
     auto encStr = Encryption::rsaEncryptString(key, sample);
     ASSERT_TRUE(encStr.has_value());
     auto decStr = Encryption::rsaDecryptString(key, *encStr);
@@ -49,7 +35,7 @@ TEST(Encryption, RSA_StringSizes) {
     ASSERT_FALSE(encStr.has_value());
 
     // Regular strings
-    sample = randomBytes(79);
+    sample = Encryption::generateBytes(79);
     encStr = Encryption::rsaEncryptString(key, sample);
     ASSERT_TRUE(encStr.has_value());
     decStr = Encryption::rsaDecryptString(key, *encStr);
@@ -58,7 +44,7 @@ TEST(Encryption, RSA_StringSizes) {
     ASSERT_EQ(sample, decStr);
 
     // Chunk-size strings
-    sample = randomBytes(256);
+    sample = Encryption::generateBytes(256);
     encStr = Encryption::rsaEncryptString(key, sample);
     ASSERT_TRUE(encStr.has_value());
     decStr = Encryption::rsaDecryptString(key, *encStr);
@@ -67,7 +53,7 @@ TEST(Encryption, RSA_StringSizes) {
     ASSERT_EQ(sample, decStr);
 
     // Big unaligned strings
-    sample = randomBytes(1733);
+    sample = Encryption::generateBytes(1733);
     encStr = Encryption::rsaEncryptString(key, sample);
     ASSERT_TRUE(encStr.has_value());
     decStr = Encryption::rsaDecryptString(key, *encStr);
@@ -76,7 +62,7 @@ TEST(Encryption, RSA_StringSizes) {
     ASSERT_EQ(sample, decStr);
 
     // Big strings
-    sample = randomBytes(2048);
+    sample = Encryption::generateBytes(2048);
     encStr = Encryption::rsaEncryptString(key, sample);
     ASSERT_TRUE(encStr.has_value());
     decStr = Encryption::rsaDecryptString(key, *encStr);
@@ -85,7 +71,7 @@ TEST(Encryption, RSA_StringSizes) {
     ASSERT_EQ(sample, decStr);
 }
 
-TEST(Encryption, RSA_KeySaveRestore) {
+TEST(Components_Encryption, RSA_KeySaveRestore) {
     auto key = Encryption::rsaGenerateKeys();
 
     // Regular save test
@@ -133,48 +119,50 @@ TEST(Encryption, RSA_KeySaveRestore) {
     ASSERT_TRUE(EVP_PKEY_eq(key.get(), privEncKey.get())) << "Loaded encrypted key is invalid";
 }
 
-TEST(Encryption, RSA_FileEncrypt) {
+TEST(Components_Encryption, RSA_FileEncrypt) {
     auto key = Encryption::rsaGenerateKeys();
 
     const auto testFileSource = std::filesystem::temp_directory_path() / "enctest_samplefile_source.bin";
+
+    auto deleter = [&](auto*) {
+        if (std::filesystem::exists(testFileSource)) {
+            std::filesystem::remove(testFileSource);
+        }
+    };
+    std::unique_ptr<void, decltype(deleter)> {reinterpret_cast<void*>(1), deleter};
+
     std::string testData;
-    testData = randomBytes(76411); // Must be enough for test
-    {
-        std::ofstream srcFile(testFileSource, std::ios_base::out | std::ios_base::trunc);
-        srcFile << testData;
-        srcFile.flush();
-    }
+    const auto BUFF_SIZE = 7641; // Must be enough for test
+    testData = Encryption::generateSybmols(BUFF_SIZE);
 
-    { // Check if data really written
-        std::string tmpd;
-        ASSERT_TRUE(Filework::Common::readFileData(testFileSource, tmpd));
-        ASSERT_FALSE(tmpd.empty());
-        ASSERT_EQ(testData, tmpd);
-    }
+    Filework::TemporaryFile srcFile(testFileSource);
+    srcFile.write(testData.c_str(), testData.size());
+    srcFile.flush();
+    srcFile.accept();
 
-    // Create file to work with
-    const auto testFile = std::filesystem::temp_directory_path() / "enctest_samplefile.bin";
-    if (std::filesystem::exists(testFile)) {
-        // remove existing one (only for correct test)
-        std::filesystem::remove(testFile);
-    }
-    std::filesystem::copy_file(testFileSource, testFile);
+    // Encrypt file data
+    ASSERT_TRUE(Encryption::rsaEncryptFile(std::string(srcFile.getFilename()), key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
+
+    // Read what encrypted
+    char readBuffer[BUFF_SIZE * 2];
+    std::fill_n(readBuffer, BUFF_SIZE * 2, '\0');
+    srcFile.seekg(0, std::ios_base::beg);
+    auto readCnt = srcFile.readsome(readBuffer, BUFF_SIZE * 2);
+    ASSERT_GT(readCnt, BUFF_SIZE); // Must be 256*N, more that source
+    ASSERT_NE(testData, readBuffer);
 
     // Check encrypting of file
-    ASSERT_TRUE(Encryption::rsaEncryptFile(testFile, key));
-    {
-        std::string tmpd;
-        ASSERT_TRUE(Filework::Common::readFileData(testFile, tmpd));
-        ASSERT_FALSE(tmpd.empty());
-        ASSERT_NE(testData, tmpd);
-    }
+    ASSERT_TRUE(Encryption::rsaDecryptFile(std::string(srcFile.getFilename()), key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
 
-    // Check encrypting of file
-    ASSERT_TRUE(Encryption::rsaDecryptFile(testFile, key));
-    {
-        std::string tmpd;
-        ASSERT_TRUE(Filework::Common::readFileData(testFile, tmpd));
-        ASSERT_FALSE(tmpd.empty());
-        ASSERT_EQ(testData, tmpd);
-    }
+    // Clean buffer
+    std::fill_n(readBuffer, BUFF_SIZE * 2, '\0');
+
+    // Read what decrypted
+    readCnt = 0;
+    srcFile.seekg(0, std::ios_base::beg);
+    readCnt = srcFile.readsome(readBuffer, BUFF_SIZE * 2);
+    ASSERT_EQ(BUFF_SIZE, readCnt); // Must be equal with source size
+    ASSERT_EQ(testData, readBuffer);
 }
+
+#endif // COMPONENTS_SW_encryption_rsa

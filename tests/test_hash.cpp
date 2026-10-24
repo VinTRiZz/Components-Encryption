@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <Components/Encryption/Hash.h>
-#include <Components/Filework/TemporaryFile.h>
+
+#include <filesystem>
+#include <fstream>
 
 namespace {
 
@@ -22,10 +24,21 @@ void checkHash(const std::string& hashInput, const std::string& expectedHash) {
 }
 
 void checkHashFile(const std::string& hashInput, const std::string& expectedHash) {
-    Filework::TemporaryFile tmpFile;
+    std::string testFile {"./test.txt"};
+    auto deleter = [&](auto*) {
+        if (std::filesystem::exists(testFile)) {
+            std::filesystem::remove(testFile);
+        }
+    };
+    std::unique_ptr<void, decltype(deleter)> {reinterpret_cast<void*>(1), deleter};
+
+    std::fstream tmpFile(testFile, std::ios_base::in | std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+    ASSERT_TRUE(tmpFile.is_open()) << "Failed to open temporary file: " << strerror(errno);
     tmpFile << hashInput;
+    tmpFile.flush();
     tmpFile.seekg(0, std::ios_base::beg);
-    auto res = Encryption::sha256file(tmpFile.getFilename());
+
+    auto res = Encryption::sha256file(testFile);
     ASSERT_TRUE(res.has_value()) << Encryption::getEncryptionErrorText();
     ASSERT_EQ(expectedHash, res.value());
 }
