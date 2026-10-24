@@ -4,6 +4,8 @@
 #include <openssl/evp.h>
 #include <openssl/err.h>
 
+#include <memory>
+
 namespace Encryption {
 
 static const auto BLOB_IV_LENGTH  = 12;  // GCM IV size recommended
@@ -72,88 +74,68 @@ bool aes256_gcm_encryptHelper(const std::string& plaintext,
         return false;
     }
 
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (ctx == NULL) {
+    auto deleter = [](EVP_CIPHER_CTX* ctx){
+        if (nullptr != ctx) {
+            EVP_CIPHER_CTX_free(ctx);
+        }
         global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    };
+    std::unique_ptr<EVP_CIPHER_CTX, decltype(deleter)> pCtx { EVP_CIPHER_CTX_new(), deleter };
+    if (!pCtx) {
         return false;
     }
 
-    if (EVP_EncryptInit_ex(ctx, cipher, NULL, NULL, NULL) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_EncryptInit_ex(pCtx.get(), cipher, NULL, NULL, NULL) != 1) {
         return false;
     }
 
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(iv.size()), NULL) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_CIPHER_CTX_ctrl(pCtx.get(), EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(iv.size()), NULL) != 1) {
         return false;
     }
 
-    if (EVP_EncryptInit_ex(ctx, NULL, NULL,
+    if (EVP_EncryptInit_ex(pCtx.get(), NULL, NULL,
                            reinterpret_cast<const unsigned char*>(key.c_str()),
                            reinterpret_cast<const unsigned char*>(iv.c_str())) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
         return false;
     }
 
     if (!aad.empty())
     {
         int aadLength = 0;
-        if (EVP_EncryptUpdate(ctx, NULL, &aadLength,
+        if (EVP_EncryptUpdate(pCtx.get(), NULL, &aadLength,
                               reinterpret_cast<const unsigned char*>(aad.c_str()),
                               static_cast<int>(aad.size())) != 1) {
-            EVP_CIPHER_CTX_free(ctx);
-            global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
             return false;
         }
     }
 
     const int plaintextLength = plaintext.length();
-    const int maxCiphertextLength =
-        plaintextLength + EVP_CIPHER_block_size(cipher);
+    const int maxCiphertextLength = plaintextLength + EVP_CIPHER_block_size(cipher);
 
-    unsigned char* ciphertextBytes = new unsigned char[maxCiphertextLength];
+    unsigned char ciphertextBytes[maxCiphertextLength];
     int ciphertextLength = 0;
 
-    if (EVP_EncryptUpdate(ctx, ciphertextBytes, &ciphertextLength,
+    if (EVP_EncryptUpdate(pCtx.get(), ciphertextBytes, &ciphertextLength,
                           reinterpret_cast<const unsigned char*>(plaintext.c_str()),
-                          plaintextLength) != 1)
-    {
-        delete[] ciphertextBytes;
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+                          plaintextLength) != 1) {
         return false;
     }
 
     int ciphertextFinalLength = 0;
-    if (EVP_EncryptFinal_ex(ctx, ciphertextBytes + ciphertextLength,
-                            &ciphertextFinalLength) != 1)
-    {
-        delete[] ciphertextBytes;
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_EncryptFinal_ex(pCtx.get(), ciphertextBytes + ciphertextLength,
+                            &ciphertextFinalLength) != 1) {
         return false;
     }
     ciphertextLength += ciphertextFinalLength;
 
     unsigned char tagBytes[16];
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG,
-                            static_cast<int>(sizeof(tagBytes)), tagBytes) != 1)
-    {
-        delete[] ciphertextBytes;
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_CIPHER_CTX_ctrl(pCtx.get(), EVP_CTRL_GCM_GET_TAG,
+                            static_cast<int>(sizeof(tagBytes)), tagBytes) != 1) {
         return false;
     }
 
     ciphertext.assign(reinterpret_cast<const char*>(ciphertextBytes), ciphertextLength);
     tag.assign(reinterpret_cast<const char*>(tagBytes), sizeof(tagBytes));
-
-    delete[] ciphertextBytes;
-    EVP_CIPHER_CTX_free(ctx);
-
     return true;
 }
 
@@ -175,7 +157,6 @@ bool aes256_gcm_decryptHelper(std::string& ciphertext,
         return false;
     }
 
-    // Указываем параметры алгоритма шифрования
     const EVP_CIPHER* cipher = EVP_get_cipherbyname("aes-256-gcm");
     if (cipher == NULL)
     {
@@ -183,47 +164,38 @@ bool aes256_gcm_decryptHelper(std::string& ciphertext,
         return false;
     }
 
-    // Дешифруем текст
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (ctx == NULL)
-    {
+    auto deleter = [](EVP_CIPHER_CTX* ctx){
+        if (nullptr != ctx) {
+            EVP_CIPHER_CTX_free(ctx);
+        }
         global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    };
+    std::unique_ptr<EVP_CIPHER_CTX, decltype(deleter)> pCtx { EVP_CIPHER_CTX_new(), deleter };
+    if (!pCtx){
         return false;
     }
 
-    if (EVP_DecryptInit_ex(ctx, cipher, NULL, NULL, NULL) != 1)
-    {
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_DecryptInit_ex(pCtx.get(), cipher, NULL, NULL, NULL) != 1) {
         return false;
     }
 
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN,
-                            static_cast<int>(iv.size()), NULL) != 1)
-    {
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_CIPHER_CTX_ctrl(pCtx.get(), EVP_CTRL_GCM_SET_IVLEN,
+                            static_cast<int>(iv.size()), NULL) != 1) {
         return false;
     }
 
-    if (EVP_DecryptInit_ex(ctx, NULL, NULL,
+    if (EVP_DecryptInit_ex(pCtx.get(), NULL, NULL,
                            reinterpret_cast<const unsigned char*>(key.c_str()),
-                           reinterpret_cast<const unsigned char*>(iv.c_str())) != 1)
-    {
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+                           reinterpret_cast<const unsigned char*>(iv.c_str())) != 1) {
         return false;
     }
 
     if (!aad.empty())
     {
         int aadLength = 0;
-        if (EVP_DecryptUpdate(ctx, NULL, &aadLength,
+        if (EVP_DecryptUpdate(pCtx.get(), NULL, &aadLength,
                               reinterpret_cast<const unsigned char*>(aad.c_str()),
-                              static_cast<int>(aad.size())) != 1)
-        {
-            EVP_CIPHER_CTX_free(ctx);
-            global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+                              static_cast<int>(aad.size())) != 1) {
             return false;
         }
     }
@@ -232,46 +204,29 @@ bool aes256_gcm_decryptHelper(std::string& ciphertext,
     const int maxPlaintextLength =
         ciphertextLength + EVP_CIPHER_block_size(cipher);
 
-    unsigned char* plaintextBytes = new unsigned char[maxPlaintextLength];
+    unsigned char plaintextBytes[maxPlaintextLength];
     int plaintextLength = 0;
 
-    if (EVP_DecryptUpdate(ctx, plaintextBytes, &plaintextLength,
+    if (EVP_DecryptUpdate(pCtx.get(), plaintextBytes, &plaintextLength,
                           reinterpret_cast<const unsigned char*>(ciphertext.c_str()),
-                          ciphertextLength) != 1)
-    {
-        delete[] plaintextBytes;
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+                          ciphertextLength) != 1) {
         return false;
     }
 
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG,
+    if (EVP_CIPHER_CTX_ctrl(pCtx.get(), EVP_CTRL_GCM_SET_TAG,
                             static_cast<int>(tag.size()),
-                            (void*)tag.data()) != 1) // will be too large cast otherwise
-    {
-        delete[] plaintextBytes;
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+                            (void*)tag.data()) != 1) {
         return false;
     }
 
+    // Check if tag is valid
     int plaintextFinalLength = 0;
-    if (EVP_DecryptFinal_ex(ctx, plaintextBytes + plaintextLength,
-                            &plaintextFinalLength) != 1)
-    {
-        // Тег не сошёлся — данные подделаны или AAD/ключ/IV неверны.
-        delete[] plaintextBytes;
-        EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    if (EVP_DecryptFinal_ex(pCtx.get(), plaintextBytes + plaintextLength,
+                            &plaintextFinalLength) != 1) {
         return false;
     }
     plaintextLength += plaintextFinalLength;
-
     plaintext.assign(reinterpret_cast<const char*>(plaintextBytes), plaintextLength);
-
-    delete[] plaintextBytes;
-    EVP_CIPHER_CTX_free(ctx);
-
     return true;
 }
 
