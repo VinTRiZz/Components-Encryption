@@ -1,7 +1,5 @@
 #include "rsa.hpp"
 
-#ifdef COMPONENTS_SW_encryption_rsa
-
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
@@ -407,5 +405,3 @@ bool rsaDecryptFile(const std::string &targetFile, const std::string &privkeyPat
 }
 
 }
-
-#endif // COMPONENTS_SW_encryption_rsa

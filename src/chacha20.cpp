@@ -1,7 +1,5 @@
 #include "chacha20.hpp"
 
-#ifdef COMPONENTS_SW_encryption_chacha
-
 #define CHACHA20_KEY_SIZE 32
 #define CHACHA20_IV_SIZE 8
 
@@ -76,5 +74,3 @@ bool chacha20_decrypt(const std::string & encryptedText, const std::string & key
 }
 
 }
-
-#endif // COMPONENTS_SW_encryption_chacha
