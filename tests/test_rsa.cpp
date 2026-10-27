@@ -75,43 +75,40 @@ TEST(Components_Encryption, RSA_KeySaveRestore) {
     auto key = Encryption::rsaGenerateKeys();
 
     // Regular save test
-    auto testPrivKeyFile = std::filesystem::temp_directory_path() / "enctest_privkey.pem";
-    ASSERT_TRUE(Encryption::rsaSavePrivateKey(key, testPrivKeyFile));
-    ASSERT_TRUE(std::filesystem::exists(testPrivKeyFile) &&
-                std::filesystem::file_size(testPrivKeyFile) != 0);
+    Filework::TemporaryFile privFreeTmp;
+    ASSERT_TRUE(Encryption::rsaSavePrivateKey(key, std::string(privFreeTmp.getFilename())));
+    ASSERT_TRUE(std::filesystem::exists(privFreeTmp.getFilename()) &&
+                std::filesystem::file_size(privFreeTmp.getFilename()) != 0);
 
     // Encrypted save test
     const std::string encryptionPassphrase = "example password to be sure";
-    auto testPrivEncKeyFile = std::filesystem::temp_directory_path() / "enctest_privkey_enc.pem";
-    ASSERT_TRUE(Encryption::rsaSavePrivateKey(key, testPrivEncKeyFile, encryptionPassphrase));
-    ASSERT_TRUE(std::filesystem::exists(testPrivEncKeyFile) &&
-                std::filesystem::file_size(testPrivEncKeyFile) != 0);
+    Filework::TemporaryFile privEncrTmp;
+    ASSERT_TRUE(Encryption::rsaSavePrivateKey(key, std::string(privEncrTmp.getFilename()), encryptionPassphrase));
+    ASSERT_TRUE(std::filesystem::exists(privEncrTmp.getFilename()) &&
+                std::filesystem::file_size(privEncrTmp.getFilename()) != 0);
 
     // Check encryption is invalid
     std::string keyData;
-    ASSERT_TRUE(Filework::Common::readFileData(testPrivKeyFile, keyData));
+    ASSERT_TRUE(Filework::Common::readFileData(std::string(privFreeTmp.getFilename()), keyData));
     std::string encKeyData;
-    ASSERT_TRUE(Filework::Common::readFileData(testPrivEncKeyFile, encKeyData));
+    ASSERT_TRUE(Filework::Common::readFileData(std::string(privEncrTmp.getFilename()), encKeyData));
     ASSERT_NE(keyData, encKeyData);
 
     // Public save test
-    auto testPubKeyFile = std::filesystem::temp_directory_path() / "enctest_pubkey.pem";
-    ASSERT_TRUE(Encryption::rsaSavePublicKey(key, testPubKeyFile));
-    ASSERT_TRUE(std::filesystem::exists(testPrivKeyFile) &&
-                std::filesystem::file_size(testPrivKeyFile) != 0);
+    Filework::TemporaryFile pubTmp;
+    ASSERT_TRUE(Encryption::rsaSavePublicKey(key, std::string(pubTmp.getFilename())));
+    ASSERT_TRUE(std::filesystem::exists(privFreeTmp.getFilename()) &&
+                std::filesystem::file_size(privFreeTmp.getFilename()) != 0);
 
     // Reading keys
-    auto pubKey = Encryption::rsaReadPublicKey(testPubKeyFile);
+    auto pubKey = Encryption::rsaReadPublicKey(std::string(pubTmp.getFilename()));
     ASSERT_NE(pubKey, nullptr);
-    std::filesystem::remove(testPubKeyFile);
 
-    auto privKey = Encryption::rsaReadPrivateKey(testPrivKeyFile);
+    auto privKey = Encryption::rsaReadPrivateKey(std::string(privFreeTmp.getFilename()));
     ASSERT_NE(privKey, nullptr);
-    std::filesystem::remove(testPrivKeyFile);
 
-    auto privEncKey = Encryption::rsaReadPrivateKey(testPrivEncKeyFile, encryptionPassphrase);
+    auto privEncKey = Encryption::rsaReadPrivateKey(std::string(privEncrTmp.getFilename()), encryptionPassphrase);
     ASSERT_NE(privEncKey, nullptr);
-    std::filesystem::remove(testPrivEncKeyFile);
 
     // Check if read keys are correct
     ASSERT_TRUE(EVP_PKEY_eq(key.get(), privKey.get())) << "Loaded private key is invalid";
