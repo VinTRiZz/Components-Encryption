@@ -100,10 +100,17 @@ bool rsaSavePrivateKey(const RSAKeysPtr& pkey, const std::string& filename, cons
         return false;
     }
 
-    auto writeByteCount = PEM_write_PrivateKey(
-        pkey_file, pkey.get(),
-        EVP_aes_256_cbc(), reinterpret_cast<const unsigned char*>(passphrase.data()), passphrase.size(),
-        NULL, NULL);
+    // Save password NOT in legacy format
+    int writeByteCount = PEM_write_PKCS8PrivateKey(
+        pkey_file,
+        pkey.get(),
+        EVP_aes_256_cbc(),
+        passphrase.c_str(),
+        passphrase.size(),
+        nullptr,
+        nullptr
+        );
+
     fclose(pkey_file);
     if (writeByteCount == 0) {
         global_encryptionErrorText = std::string("[SAVEPK] ") + strerror(errno);
@@ -121,6 +128,10 @@ RSAKeysPtr rsaReadPublicKey(const std::string &filename) {
     }
     auto pkey = PEM_read_PUBKEY(fp, NULL, NULL, NULL);
     fclose(fp);
+    if (!pkey) {
+        global_encryptionErrorText = std::string("[LOADPUBK] ") + ERR_error_string(ERR_get_error(), nullptr);
+        return {};
+    }
     return RSAKeysPtr(pkey, &EVP_PKEY_free);
 }
 
@@ -133,6 +144,10 @@ RSAKeysPtr rsaReadPrivateKey(const std::string &filename, const std::string &pas
     // Pass passphrase if the key is encrypted
     auto pkey = PEM_read_PrivateKey(fp, NULL, NULL, (void*)passphrase.c_str());
     fclose(fp);
+    if (!pkey) {
+        global_encryptionErrorText = std::string("[LOADPK] ") + ERR_error_string(ERR_get_error(), nullptr);
+        return {};
+    }
     return RSAKeysPtr(pkey, &EVP_PKEY_free);
 }
 
@@ -160,29 +175,29 @@ std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const s
         return resH;
     }
 
-    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(publicKey.get(), NULL);
-    if (!ctx || EVP_PKEY_encrypt_init(ctx) <= 0) {
-        global_encryptionErrorText = std::string("[ENCS-I] ") + ERR_error_string(ERR_get_error(), nullptr);
-        EVP_PKEY_CTX_free(ctx);
+    auto deleter = [](EVP_PKEY_CTX* ctx){
+        if (nullptr != ctx) {
+            EVP_PKEY_CTX_free(ctx);
+        }
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    };
+    std::unique_ptr<EVP_PKEY_CTX, decltype(deleter)> pCtx { EVP_PKEY_CTX_new(publicKey.get(), NULL), deleter };
+    if (!pCtx || EVP_PKEY_encrypt_init(pCtx.get()) <= 0) {
         return {};
     }
 
     // Set padding - OAEP padding is recommended for new applications :cite[1]
-    if (EVP_PKEY_CTX_set_rsa_padding(ctx, paddingType) <= 0) {
-        global_encryptionErrorText = std::string("[ENCS-P] ") + ERR_error_string(ERR_get_error(), nullptr);
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_CTX_set_rsa_padding(pCtx.get(), paddingType) <= 0) {
         return {};
     }
 
     // Determine buffer size
     size_t ciphertext_len {0};
-    if (EVP_PKEY_encrypt(ctx,
+    if (EVP_PKEY_encrypt(pCtx.get(),
                          NULL,
                          &ciphertext_len,
                          reinterpret_cast<const unsigned char*>(plaintext.c_str()),
                          plaintext.size()) <= 0) {
-        global_encryptionErrorText = std::string("[ENCS-BS] ") + ERR_error_string(ERR_get_error(), nullptr);
-        EVP_PKEY_CTX_free(ctx);
         return {};
     }
 
@@ -190,20 +205,13 @@ std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const s
     std::string result;
     result.resize(ciphertext_len);
     if (EVP_PKEY_encrypt(
-                ctx,
+                pCtx.get(),
                 reinterpret_cast<unsigned char*>(result.data()),
                 &ciphertext_len,
                 reinterpret_cast<const unsigned char*>(plaintext.c_str()),
                 plaintext.size()) <= 0) {
-        global_encryptionErrorText = std::string("[ENCS-D] ") + ERR_error_string(ERR_get_error(), nullptr);
-        EVP_PKEY_CTX_free(ctx);
         return {};
     }
-    if (result.size() % 256) {
-        std::fill_n(std::back_inserter(result), result.size() % 256, 0x0);
-    }
-
-    EVP_PKEY_CTX_free(ctx);
     return result;
 }
 
@@ -229,30 +237,30 @@ std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const 
         return res;
     }
 
-    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(privateKey.get(), NULL);
-    if (!ctx || EVP_PKEY_decrypt_init(ctx) <= 0) {
-        global_encryptionErrorText = std::string("[DECS-I] ") + ERR_error_string(ERR_get_error(), nullptr);
-        EVP_PKEY_CTX_free(ctx);
+    auto deleter = [](EVP_PKEY_CTX* ctx){
+        if (nullptr != ctx) {
+            EVP_PKEY_CTX_free(ctx);
+        }
+        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+    };
+    std::unique_ptr<EVP_PKEY_CTX, decltype(deleter)> pCtx { EVP_PKEY_CTX_new(privateKey.get(), NULL), deleter };
+    if (!pCtx || EVP_PKEY_decrypt_init(pCtx.get()) <= 0) {
         return {};
     }
 
     // Set padding - MUST match the padding used during encryption
-    if (EVP_PKEY_CTX_set_rsa_padding(ctx, paddingType) <= 0) {
-        global_encryptionErrorText = std::string("[DECS-P] ") + ERR_error_string(ERR_get_error(), nullptr);
-        EVP_PKEY_CTX_free(ctx);
+    if (EVP_PKEY_CTX_set_rsa_padding(pCtx.get(), paddingType) <= 0) {
         return {};
     }
 
     // Determine buffer size
     size_t plaintext_len {0};
     if (EVP_PKEY_decrypt(
-                ctx,
+                pCtx.get(),
                 NULL,
                 &plaintext_len,
                 reinterpret_cast<const unsigned char*>(ciphertext.c_str()),
                 ciphertext.size()) <= 0) {
-        global_encryptionErrorText = std::string("[DECS-BS] ") + ERR_error_string(ERR_get_error(), nullptr);
-        EVP_PKEY_CTX_free(ctx);
         return {};
     }
 
@@ -260,18 +268,15 @@ std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const 
     std::string result;
     result.resize(plaintext_len);
     if (EVP_PKEY_decrypt(
-                ctx,
+                pCtx.get(),
                 reinterpret_cast<unsigned char*>(result.data()),
                 &plaintext_len,
                 reinterpret_cast<const unsigned char*>(ciphertext.c_str()),
                 ciphertext.size()) <= 0) {
-        global_encryptionErrorText = std::string("[DECS-D] ") + ERR_error_string(ERR_get_error(), nullptr);
-        EVP_PKEY_CTX_free(ctx);
         return {};
     }
 
     result.resize(plaintext_len); // Adjust to the actual decrypted size
-    EVP_PKEY_CTX_free(ctx);
     return result;
 }
 
@@ -317,16 +322,15 @@ RSAKeysPtr rsaKeyFromString(const std::string& pubKey) {
 }
 
 bool rsaEncryptFile(const std::string &targetFile, const RSAKeysPtr &pubkey)
-{
-    Filework::TemporaryFile tmpFile(targetFile);
-
+{    
     std::ifstream inputFile(targetFile, std::ios::binary);
     if (!inputFile) {
         global_encryptionErrorText = std::string("Failed to open target file: ") + strerror(errno);
         return 1;
     }
+    Filework::TemporaryFile tmpFile(targetFile, false);
 
-    const auto BUFF_SIZE {4096}; // Idk what value is best
+    const auto BUFF_SIZE {9128}; // Idk what value is best
     char buffer [BUFF_SIZE];
     while (inputFile) {
         auto readCnt = inputFile.readsome(buffer, BUFF_SIZE);
@@ -362,22 +366,21 @@ bool rsaEncryptFile(const std::string &targetFile, const std::string &pubkeyPath
 
 bool rsaDecryptFile(const std::string &targetFile, const RSAKeysPtr &privkey)
 {
-    Filework::TemporaryFile tmpFile(targetFile);
-
     std::ifstream inputFile(targetFile, std::ios::binary);
     if (!inputFile) {
         global_encryptionErrorText = std::string("Failed to open target file: ") + strerror(errno);
         return false;
     }
+    Filework::TemporaryFile tmpFile(targetFile, false);
 
-    const auto BUFF_SIZE {12800};
-    char buffer [BUFF_SIZE]; // 256 is size of RSA chunk
+    const auto BUFF_SIZE {10240}; // Idk what value is best
+    char buffer [BUFF_SIZE];
     while (inputFile) {
         auto readCnt = inputFile.readsome(buffer, BUFF_SIZE);
         if (readCnt <= 0) { break; }
-        auto decData = rsaDecryptString(privkey, std::string(buffer, readCnt));
-        if (!decData.has_value()) { return false; }
-        tmpFile.write(decData->c_str(), decData->size());
+        auto encData = rsaDecryptString(privkey, std::string(buffer, readCnt));
+        if (!encData.has_value()) { return false; }
+        tmpFile.write(encData->c_str(), encData->size());
         tmpFile.flush();
     }
 

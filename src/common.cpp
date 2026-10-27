@@ -29,7 +29,9 @@ std::string generateSybmols(const size_t lengthByte)
     std::string result;
     for (int8_t i = 0; result.size() < lengthByte; i++) {
         char test_symbol = uni(rng);
-        if ((test_symbol >= '0') || (test_symbol < 0)) {
+        if (((test_symbol >= '0') && (test_symbol <= '9')) ||
+            ((test_symbol >= 'a') && (test_symbol <= 'z')) ||
+            ((test_symbol >= 'A') && (test_symbol <= 'Z'))) {
             result += test_symbol;
         }
     }

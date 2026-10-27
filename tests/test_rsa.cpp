@@ -122,20 +122,11 @@ TEST(Components_Encryption, RSA_KeySaveRestore) {
 TEST(Components_Encryption, RSA_FileEncrypt) {
     auto key = Encryption::rsaGenerateKeys();
 
-    const auto testFileSource = std::filesystem::temp_directory_path() / "enctest_samplefile_source.bin";
-
-    auto deleter = [&](auto*) {
-        if (std::filesystem::exists(testFileSource)) {
-            std::filesystem::remove(testFileSource);
-        }
-    };
-    std::unique_ptr<void, decltype(deleter)> {reinterpret_cast<void*>(1), deleter};
-
     std::string testData;
     const auto BUFF_SIZE = 7641; // Must be enough for test
-    testData = Encryption::generateSybmols(BUFF_SIZE);
+    testData = Encryption::generateBytes(BUFF_SIZE);
 
-    Filework::TemporaryFile srcFile(testFileSource);
+    Filework::TemporaryFile srcFile;
     srcFile.write(testData.c_str(), testData.size());
     srcFile.flush();
     srcFile.accept();
@@ -145,8 +136,8 @@ TEST(Components_Encryption, RSA_FileEncrypt) {
 
     // Read what encrypted
     char readBuffer[BUFF_SIZE * 2];
-    std::fill_n(readBuffer, BUFF_SIZE * 2, '\0');
     srcFile.seekg(0, std::ios_base::beg);
+    std::fill_n(readBuffer, BUFF_SIZE * 2, '\0');
     auto readCnt = srcFile.readsome(readBuffer, BUFF_SIZE * 2);
     ASSERT_GT(readCnt, BUFF_SIZE); // Must be 256*N, more that source
     ASSERT_NE(testData, readBuffer);
@@ -154,15 +145,13 @@ TEST(Components_Encryption, RSA_FileEncrypt) {
     // Check encrypting of file
     ASSERT_TRUE(Encryption::rsaDecryptFile(std::string(srcFile.getFilename()), key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
 
-    // Clean buffer
-    std::fill_n(readBuffer, BUFF_SIZE * 2, '\0');
-
     // Read what decrypted
     readCnt = 0;
     srcFile.seekg(0, std::ios_base::beg);
+    std::fill_n(readBuffer, BUFF_SIZE * 2, '\0');
     readCnt = srcFile.readsome(readBuffer, BUFF_SIZE * 2);
     ASSERT_EQ(BUFF_SIZE, readCnt); // Must be equal with source size
-    ASSERT_EQ(testData, readBuffer);
+    ASSERT_EQ(testData, std::string(readBuffer, readCnt));
 }
 
 #endif // COMPONENTS_SW_encryption_rsa
