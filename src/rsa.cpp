@@ -142,7 +142,7 @@ RSAKeysPtr rsaReadPrivateKey(const std::string &filename, const std::string &pas
         return nullptr;
     }
     // Pass passphrase if the key is encrypted
-    auto pkey = PEM_read_PrivateKey(fp, NULL, NULL, (void*)passphrase.c_str());
+    auto pkey = PEM_read_PrivateKey(fp, NULL, NULL, (void*)passphrase.data());
     fclose(fp);
     if (!pkey) {
         global_encryptionErrorText = std::string("[LOADPK] ") + ERR_error_string(ERR_get_error(), nullptr);

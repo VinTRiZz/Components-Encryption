@@ -81,7 +81,7 @@ TEST(Components_Encryption, RSA_KeySaveRestore) {
                 std::filesystem::file_size(privFreeTmp.getFilename()) != 0);
 
     // Encrypted save test
-    const std::string encryptionPassphrase = "example password to be sure";
+    const std::string encryptionPassphrase = Encryption::generateSymbols(100);
     Filework::TemporaryFile privEncrTmp;
     ASSERT_TRUE(Encryption::rsaSavePrivateKey(key, std::string(privEncrTmp.getFilename()), encryptionPassphrase));
     ASSERT_TRUE(std::filesystem::exists(privEncrTmp.getFilename()) &&

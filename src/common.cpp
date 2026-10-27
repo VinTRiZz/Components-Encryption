@@ -20,7 +20,7 @@ std::string generateBytes(const size_t lengthByte)
     return result;
 }
 
-std::string generateSybmols(const size_t lengthByte)
+std::string generateSymbols(const size_t lengthByte)
 {
     std::random_device rd;
     std::mt19937 rng(rd());
