@@ -124,7 +124,7 @@ std::optional<std::string> aes256_cbc_encrypt(const std::string &input, const st
     if (input.empty()) { return {}; }
 
     std::string encryptedPacket;
-    std::string iv = generateBytes(64);
+    std::string iv = generateBytes_CSPRNG(64);
 
     if (aes256_cbc_encryptHelper(input, key, iv, encryptedPacket)) {
         std::string output = iv;

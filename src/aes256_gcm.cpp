@@ -233,7 +233,7 @@ bool aes256_gcm_decryptHelper(std::string& ciphertext,
 
 
 std::optional<std::string> aes256_gcm_encrypt(const std::string& input, const std::string& key, const std::string& aad) {
-    auto iv = generateBytes(BLOB_IV_LENGTH);
+    auto iv = generateBytes_CSPRNG(BLOB_IV_LENGTH);
     std::string tag;
     std::string ciphertext;
     if (aes256_gcm_encryptHelper(input, key, iv, aad, ciphertext, tag)) {
