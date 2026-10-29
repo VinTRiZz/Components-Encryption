@@ -326,7 +326,7 @@ bool rsaEncryptFile(const std::string &targetFile, const RSAKeysPtr &pubkey)
     std::ifstream inputFile(targetFile, std::ios::binary);
     if (!inputFile) {
         global_encryptionErrorText = std::string("Failed to open target file: ") + strerror(errno);
-        return 1;
+        return false;
     }
     Filework::TemporaryFile tmpFile(targetFile, false);
 
