@@ -12,7 +12,9 @@ bool aes256_cbc_encryptHelper(const std::string& plaintext,
                               std::string& ciphertext)
 {
     if (key.size() != 32) {
-        global_encryptionErrorText = "Key size is invalid (expected 32 bytes)";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[AES256-CBC] key size",
+                           "Key size is invalid (expected 32 bytes)");
         return false;
     }
 
@@ -21,14 +23,18 @@ bool aes256_cbc_encryptHelper(const std::string& plaintext,
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (ctx == NULL)
     {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncryptionFailed,
+                           "[AES256-CBC] EVP_CIPHER_CTX_new",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
     if (EVP_EncryptInit_ex(ctx, cipher, NULL, (const unsigned char*)key.c_str(),
                            (const unsigned char*)iv.c_str()) != 1)
     {
         EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncryptionFailed,
+                           "[AES256-CBC] EVP_EncryptInit_ex",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
     const int plaintextLength = plaintext.length();
@@ -42,7 +48,9 @@ bool aes256_cbc_encryptHelper(const std::string& plaintext,
     {
         delete[] ciphertextBytes;
         EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncryptionFailed,
+                           "[AES256-CBC] EVP_EncryptUpdate",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
     int ciphertextFinalLength = 0;
@@ -51,7 +59,9 @@ bool aes256_cbc_encryptHelper(const std::string& plaintext,
     {
         delete[] ciphertextBytes;
         EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncryptionFailed,
+                           "[AES256-CBC] EVP_EncryptFinal_ex",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
     ciphertextLength += ciphertextFinalLength;
@@ -68,7 +78,9 @@ bool aes256_cbc_decryptHelper(std::string& ciphertext,
                               std::string& plaintext)
 {
     if (key.size() != 32) {
-        global_encryptionErrorText = "Key size is invalid (expected 32 bytes)";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[AES256-CBC] key size",
+                           "Key size is invalid (expected 32 bytes)");
         return false;
     }
 
@@ -85,7 +97,9 @@ bool aes256_cbc_decryptHelper(std::string& ciphertext,
                            (const unsigned char*)iv.c_str()) != 1)
     {
         EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalDecryptionFailed,
+                           "[AES256-CBC] EVP_DecryptInit_ex",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
     const int ciphertextLength = ciphertext.length();
@@ -99,7 +113,9 @@ bool aes256_cbc_decryptHelper(std::string& ciphertext,
     {
         delete[] plaintextBytes;
         EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalDecryptionFailed,
+                           "[AES256-CBC] EVP_DecryptUpdate",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
     int plaintextFinalLength = 0;
@@ -108,7 +124,9 @@ bool aes256_cbc_decryptHelper(std::string& ciphertext,
     {
         delete[] plaintextBytes;
         EVP_CIPHER_CTX_free(ctx);
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalDecryptionFailed,
+                           "[AES256-CBC] EVP_DecryptFinal_ex",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
     plaintextLength += plaintextFinalLength;

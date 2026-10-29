@@ -19,7 +19,9 @@ std::optional<std::string> packGcmBlob(const std::string& iv,
                         const std::string& ciphertext)
 {
     if (iv.size() != BLOB_IV_LENGTH || tag.size() != BLOB_TAG_LENGTH) {
-        global_encryptionErrorText = "Invalid size of AES-256-GCM blob part";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[AES256-GCM] packGcmBlob",
+                           "Invalid size of AES-256-GCM blob part");
         return {};
     }
 
@@ -42,7 +44,9 @@ bool unpackGcmBlob(const std::string& blob,
     const auto BLOB_TAG_LENGTH = 16;  // GCM tag length
 
     if (blob.size() < BLOB_IV_LENGTH + BLOB_TAG_LENGTH) {
-        global_encryptionErrorText = "Invalid size of AES-256-GCM blob part";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[AES256-GCM] unpackGcmBlob",
+                           "Invalid size of AES-256-GCM blob part");
         return false;
     }
     iv.assign(blob.data(), BLOB_IV_LENGTH);
@@ -64,13 +68,17 @@ bool aes256_gcm_encryptHelper(const std::string& plaintext,
                             std::string& tag)
 {
     if (key.size() != 32 || iv.empty()) {
-        global_encryptionErrorText = "Invalid key or IV length for AES-256-GCM";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[AES256-GCM] encrypt key/IV",
+                           "Invalid key or IV length for AES-256-GCM");
         return false;
     }
 
     const EVP_CIPHER* cipher = EVP_get_cipherbyname("aes-256-gcm");
     if (cipher == NULL) {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncryptionFailed,
+                           "[AES256-GCM] EVP_get_cipherbyname",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
 
@@ -78,7 +86,12 @@ bool aes256_gcm_encryptHelper(const std::string& plaintext,
         if (nullptr != ctx) {
             EVP_CIPHER_CTX_free(ctx);
         }
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        const auto errorCode = ERR_peek_error();
+        if (errorCode != 0) {
+            setEncryptionError(ExtraClasses::ErrorCode::LogicalEncryptionFailed,
+                               "[AES256-GCM] EVP_CIPHER_CTX",
+                               ERR_error_string(errorCode, nullptr));
+        }
     };
     std::unique_ptr<EVP_CIPHER_CTX, decltype(deleter)> pCtx { EVP_CIPHER_CTX_new(), deleter };
     if (!pCtx) {
@@ -153,14 +166,18 @@ bool aes256_gcm_decryptHelper(std::string& ciphertext,
 
     if (key.size() != 32 || iv.empty() || tag.size() != 16)
     {
-        global_encryptionErrorText = "Invalid key, IV or tag length for AES-256-GCM";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[AES256-GCM] decrypt key/IV/tag",
+                           "Invalid key, IV or tag length for AES-256-GCM");
         return false;
     }
 
     const EVP_CIPHER* cipher = EVP_get_cipherbyname("aes-256-gcm");
     if (cipher == NULL)
     {
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalDecryptionFailed,
+                           "[AES256-GCM] EVP_get_cipherbyname",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return false;
     }
 
@@ -168,7 +185,12 @@ bool aes256_gcm_decryptHelper(std::string& ciphertext,
         if (nullptr != ctx) {
             EVP_CIPHER_CTX_free(ctx);
         }
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        const auto errorCode = ERR_peek_error();
+        if (errorCode != 0) {
+            setEncryptionError(ExtraClasses::ErrorCode::LogicalDecryptionFailed,
+                               "[AES256-GCM] EVP_CIPHER_CTX",
+                               ERR_error_string(errorCode, nullptr));
+        }
     };
     std::unique_ptr<EVP_CIPHER_CTX, decltype(deleter)> pCtx { EVP_CIPHER_CTX_new(), deleter };
     if (!pCtx){

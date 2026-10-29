@@ -3,6 +3,7 @@ COMPONENTS_CONFIGURE_COMPONENT(Encryption "1.0.0"
 )
 option(COMPONENTS_SW_encryption_rsa "" OFF)
 option(COMPONENTS_SW_encryption_chacha "" OFF)
+COMPONENTS_LINK_COMPONENT(Components-Encryption ExtraClasses)
 COMPONENTS_LINK_COMPONENT(Components-Encryption Filework)
 if (COMPONENTS_SW_encryption_rsa)
     target_compile_definitions(Components-Encryption PRIVATE COMPONENTS_SW_encryption_rsa)

@@ -2,14 +2,28 @@
 
 #include <string>
 
+#include <Components/ExtraClasses/Error.h>
+
 namespace Encryption
 {
 
-// Used to get error text
-thread_local inline std::string global_encryptionErrorText {};
+// Encryption processes error
+thread_local inline ExtraClasses::ErrorObject g_error {};
+
+inline void setEncryptionError(
+    ExtraClasses::ErrorCode errCode,
+    const std::string& errLocation,
+    const std::string& openSSLdescr) {
+    g_error = ExtraClasses::ErrorObject(errCode,
+                                      errLocation + " : " + openSSLdescr);
+}
 
 inline std::string getEncryptionErrorText() {
-    return global_encryptionErrorText;
+    return g_error.getDetailText();
+}
+
+inline ExtraClasses::ErrorObject getEncryptionError() {
+    return g_error;
 }
 
 /**

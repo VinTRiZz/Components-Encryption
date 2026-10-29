@@ -3,7 +3,7 @@
 #include <Components/Encryption/Hash.h>
 #include <Components/Filework/TemporaryFile.h>
 
-#include "hash.cpp"
+#include "gluefilemetadata.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -81,8 +81,8 @@ TEST(Components_Encryption, GLUE_endian) {
     };
 
     for (const auto& [testValue, testDescription] : test_cases) {
-        auto converted = Encryption::serializeValue(testValue);
-        auto deconverted = Encryption::deserializeValue(converted);
+        auto converted = Encryption::GlueFileMetadata::serializeValue(testValue);
+        auto deconverted = Encryption::GlueFileMetadata::deserializeValue(converted);
         ASSERT_EQ(testValue, deconverted) << "Failed serialization case:" << testDescription;
     }
 }
@@ -93,46 +93,33 @@ TEST(Components_Encryption, GLUE_metadata) {
     tmpf.write(Encryption::generateSymbols(byteCount).c_str(), byteCount);
     tmpf.flush();
 
-    auto meta = Encryption::createFileMetadata(std::string(tmpf.getFilename()));
-    auto fileSize = Encryption::getFilesize(meta);
-    ASSERT_EQ(tmpf.size(), fileSize);
+    auto metadata = Encryption::GlueFileMetadata::fromFile(std::string(tmpf.getFilename()));
+    ASSERT_TRUE(metadata.isValid()) << Encryption::getEncryptionErrorText();
+    ASSERT_EQ(tmpf.size(), metadata.fileSize);
+    ASSERT_EQ(Encryption::sha256file(tmpf.getFilename()), metadata.fileHash);
 }
 
-TEST(Components_Encryption, GLUE_glueFiles) {
-    const std::string testDataA = "12345";
+TEST(Components_Encryption, GLUE_invalidFiles) {
     Filework::TemporaryFile tmpA;
-    tmpA << testDataA;
-    tmpA.flush();
-
-    const std::string testDataB = "67890";
     Filework::TemporaryFile tmpB;
-    tmpB << testDataB;
-    tmpB.flush();
 
-    const auto testGluedData = testDataA + testDataB;
-    const auto sumData = testGluedData.size() + Encryption::GLUE_METADATA_SIZE * 2;
-
-    const std::string resultFile {"./test_glued.bin"};
-    if (std::filesystem::exists(resultFile)) {
-        std::filesystem::remove(resultFile);
-    }
-    ASSERT_TRUE(Encryption::glueFiles(std::string(tmpA.getFilename()),
+    ASSERT_FALSE(Encryption::glueFiles(std::string(tmpA.getFilename()),
                                       std::string(tmpB.getFilename()),
-                                      resultFile));
-    ASSERT_EQ(sumData, std::filesystem::file_size(resultFile));
+                                      "test.bin"));
 
-    std::ifstream tmpRes(resultFile, std::ios_base::in | std::ios_base::binary);
-    ASSERT_TRUE(tmpRes.is_open());
+    tmpB << "AAAAAAAAAAAAAA";
+    tmpB.flush();
+    ASSERT_FALSE(Encryption::glueFiles(std::string(tmpA.getFilename()),
+                                       std::string(tmpB.getFilename()),
+                                       "test.bin"));
 
-    // Check data written
-    char buffer[sumData];
-    auto readBytes = tmpRes.readsome(buffer, sumData);
-    tmpRes.close();
-    std::filesystem::remove(resultFile);
-    ASSERT_EQ(sumData, readBytes);
+    tmpB.clearFileData();
+    tmpA << "BBBBBBBBBBBBBBBBBBBBB";
+    tmpA.flush();
+    ASSERT_FALSE(Encryption::glueFiles(std::string(tmpA.getFilename()),
+                                       std::string(tmpB.getFilename()),
+                                       "test.bin"));
 }
-
-
 
 // ======================================================== //
 void testFile(const uint64_t fileSizeA, const uint64_t fileSizeB) {
@@ -162,24 +149,25 @@ void testFile(const uint64_t fileSizeA, const uint64_t fileSizeB) {
         tmpB.flush();
 
         const auto testGluedData = testDataA + testDataB;
-        const auto sumData = testGluedData.size() + Encryption::GLUE_METADATA_SIZE * 2;
+        const auto sumDataSize = testGluedData.size() + Encryption::GLUE_METADATA_SIZE * 2;
 
         ASSERT_TRUE(Encryption::glueFiles(std::string(tmpA.getFilename()),
                                           std::string(tmpB.getFilename()),
-                                          resultFile));
-        ASSERT_EQ(sumData, std::filesystem::file_size(resultFile));
+                                          resultFile)) << "Error text: " << Encryption::getEncryptionErrorText();
+        ASSERT_EQ(sumDataSize, std::filesystem::file_size(resultFile));
 
         std::ifstream tmpRes(resultFile, std::ios_base::in | std::ios_base::binary);
         ASSERT_TRUE(tmpRes.is_open());
 
         // Check data written
-        char buffer[sumData];
-        auto readBytes = tmpRes.readsome(buffer, sumData);
+        char buffer[sumDataSize];
+        auto readBytes = tmpRes.readsome(buffer, sumDataSize);
         tmpRes.close();
-        ASSERT_EQ(sumData, readBytes);
+        ASSERT_EQ(sumDataSize, readBytes);
+        ASSERT_EQ(testGluedData, std::string(buffer + Encryption::GLUE_METADATA_SIZE * 2, readBytes - Encryption::GLUE_METADATA_SIZE * 2));
     }
 
-    ASSERT_TRUE(Encryption::splitGluedFiles(resultFile, fileA, fileB));
+    ASSERT_TRUE(Encryption::splitGluedFiles(resultFile, fileA, fileB)) << "Error text: " << Encryption::getEncryptionErrorText();
 
     {
         std::ifstream tmpRes(fileA, std::ios_base::in | std::ios_base::binary);
@@ -210,10 +198,7 @@ void testFile(const uint64_t fileSizeA, const uint64_t fileSizeB) {
 
 
 TEST(Components_Encryption, GLUE_splitFiles) {
-    testFile(0, 0);
     testFile(10, 10);
-    testFile(30, 0);
-    testFile(0, 30);
     testFile(500, 500);
     testFile(12345, 54321);
 }

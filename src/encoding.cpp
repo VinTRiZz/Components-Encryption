@@ -64,7 +64,9 @@ std::string encodeHex(const std::string& input)
     try {
         boost::algorithm::hex(input.begin(), input.end(), std::back_inserter(convertedStr));
     } catch (const std::exception& ex) {
-        global_encryptionErrorText = std::string("[HEX-ENC] ") + ex.what();
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[HEX-ENC]",
+                           ex.what());
         return {};
     }
     return convertedStr;
@@ -77,7 +79,9 @@ std::string decodeHex(const std::string& input)
     try {
         boost::algorithm::unhex(input, std::back_inserter(convertedStr));
     } catch (const std::exception& ex) {
-        global_encryptionErrorText = std::string("[HEX-DEC] ") + ex.what();
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[HEX-DEC]",
+                           ex.what());
         return {};
     }
     return convertedStr;

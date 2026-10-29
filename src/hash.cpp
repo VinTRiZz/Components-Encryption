@@ -6,12 +6,12 @@
 
 #include <iomanip>
 #include <fstream>
-#include <algorithm>
 #include <memory>
 #include <filesystem>
-#include <array>
 
 #include <Components/Filework/TemporaryFile.h>
+
+#include "gluefilemetadata.hpp"
 
 // OpenSSL engine implementation
 #define OPENSSL_ENGINE NULL
@@ -21,7 +21,9 @@ namespace Encryption {
 std::optional<std::string> sha256(const std::string_view &input)
 {
     if (input.empty()) {
-        global_encryptionErrorText = "Empty input";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[SHA-256] input",
+                           "Empty input");
         return {};
     }
 
@@ -31,17 +33,23 @@ std::optional<std::string> sha256(const std::string_view &input)
         }
     });
     if (!context) {
-        global_encryptionErrorText = std::string("Failed to create context of SHA-256") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SHA-256] EVP_MD_CTX_new",
+                           std::string("Failed to create context of SHA-256: ") + ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
 
     if (EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1) {
-        global_encryptionErrorText = std::string("SHA-256 sum init failed: ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SHA-256] EVP_DigestInit_ex",
+                           std::string("SHA-256 sum init failed: ") + ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
 
     if (EVP_DigestUpdate(context.get(), input.data(), input.size()) != 1) {
-        global_encryptionErrorText = std::string("SHA-256 sum data adding failed: ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SHA-256] EVP_DigestUpdate",
+                           std::string("SHA-256 sum data adding failed: ") + ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
 
@@ -49,7 +57,9 @@ std::optional<std::string> sha256(const std::string_view &input)
     unsigned int lengthOfHash = 0;
 
     if (EVP_DigestFinal_ex(context.get(), hash, &lengthOfHash) != 1) {
-        global_encryptionErrorText = std::string("SHA-256 sum finalize failed: ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SHA-256] EVP_DigestFinal_ex",
+                           std::string("SHA-256 sum finalize failed: ") + ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
 
@@ -65,7 +75,9 @@ std::optional<std::string> sha256(const std::string_view &input)
 std::optional<std::string> sha256file(const std::string_view &filepath)
 {
     if (!std::filesystem::exists(filepath)) {
-        global_encryptionErrorText = std::string("SHA-256 sum failed: No such file or directory: ") + filepath.data();
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[SHA-256] file",
+                           std::string("SHA-256 sum failed: No such file or directory: ") + filepath.data());
         return {};
     }
 
@@ -75,12 +87,16 @@ std::optional<std::string> sha256file(const std::string_view &filepath)
         }
     });
     if (!context) {
-        global_encryptionErrorText = std::string("Failed to create EVP_MD_CTX") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SHA-256] EVP_MD_CTX_new",
+                           std::string("Failed to create EVP_MD_CTX: ") + ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
 
     if (EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1) {
-        global_encryptionErrorText = std::string("SHA-256 sum init failed: ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SHA-256] EVP_DigestInit_ex",
+                           std::string("SHA-256 sum init failed: ") + ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
 
@@ -90,7 +106,9 @@ std::optional<std::string> sha256file(const std::string_view &filepath)
     auto readCnt = inputFile.readsome(readbuf, bufsize);
     while (readCnt > 0) {
         if (EVP_DigestUpdate(context.get(), readbuf, readCnt) != 1) {
-            global_encryptionErrorText = std::string("SHA-256 sum data adding failed: ") + ERR_error_string(ERR_get_error(), nullptr);
+            setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SHA-256] EVP_DigestUpdate",
+                           std::string("SHA-256 sum data adding failed: ") + ERR_error_string(ERR_get_error(), nullptr));
             return {};
         }
         readCnt = inputFile.readsome(readbuf, bufsize);
@@ -100,7 +118,9 @@ std::optional<std::string> sha256file(const std::string_view &filepath)
     unsigned int lengthOfHash = 0;
 
     if (EVP_DigestFinal_ex(context.get(), hash, &lengthOfHash) != 1) {
-        global_encryptionErrorText = std::string("SHA-256 sum finalize failed: ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SHA-256] EVP_DigestFinal_ex",
+                           std::string("SHA-256 sum finalize failed: ") + ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
 
@@ -114,107 +134,104 @@ std::optional<std::string> sha256file(const std::string_view &filepath)
 // =============================================== //
 // File glueing
 
-static std::array<uint8_t, 8> serializeValue(const uint64_t value) {
-    return {
-        static_cast<uint8_t>(value),
-        static_cast<uint8_t>(value >> 8),
-        static_cast<uint8_t>(value >> 16),
-        static_cast<uint8_t>(value >> 24),
-        static_cast<uint8_t>(value >> 32),
-        static_cast<uint8_t>(value >> 40),
-        static_cast<uint8_t>(value >> 48),
-        static_cast<uint8_t>(value >> 56)
-    };
-}
-
-static uint64_t deserializeValue(const std::array<uint8_t, 8>& bytes) {
-    return static_cast<uint64_t>(bytes[0]) |
-           (static_cast<uint64_t>(bytes[1]) << 8) |
-           (static_cast<uint64_t>(bytes[2]) << 16) |
-           (static_cast<uint64_t>(bytes[3]) << 24) |
-           (static_cast<uint64_t>(bytes[4]) << 32) |
-           (static_cast<uint64_t>(bytes[5]) << 40) |
-           (static_cast<uint64_t>(bytes[6]) << 48) |
-           (static_cast<uint64_t>(bytes[7]) << 56);
-}
-
-
-static const auto GLUE_METADATA_SIZE {136};
-static std::string createFileMetadata(const std::string& inputFile) {
-    if (!std::filesystem::exists(inputFile)) { return {}; }
-    const auto fileSizeSerialized = serializeValue(std::filesystem::file_size(inputFile));
-    const auto fileHash = sha256file(inputFile).value(); // Must NOT work without this data
-
-    std::string metadata;
-    std::copy_n(fileSizeSerialized.data(), fileSizeSerialized.size(), std::back_inserter(metadata));
-    metadata += fileHash;
-
-    const auto metadataHash = sha256(metadata).value(); // Must NOT work without this data
-    metadata += metadataHash;
-
-    if (metadata.size() != GLUE_METADATA_SIZE) {
-        throw std::runtime_error("Failed to glue files: metadata size could not be calculated");
+static std::pair<GlueFileMetadata, GlueFileMetadata> readFilesMetadata(const std::string& inputFile) {
+    if (!std::filesystem::exists(inputFile)) {
+        setEncryptionError(ExtraClasses::SystemFileError,
+                           "Glued files metadata read",
+                           "Glued file not exist");
+        return {};
     }
-    return metadata;
-}
-
-static std::size_t getFilesize(const std::string& fileMetadata) {
-    auto metadata = std::string(fileMetadata.data(), GLUE_METADATA_SIZE - 64);
-    auto metadataHash = std::string(fileMetadata.data() + GLUE_METADATA_SIZE - 64, 64);
-    if (metadataHash != sha256(metadata)) {
-        throw std::runtime_error("Failed to split files: invalid metadata");
-    }
-    std::array<uint8_t, 8> sizeSerialized {};
-    std::copy_n(metadata.begin(), 8, sizeSerialized.begin());
-    return deserializeValue(sizeSerialized);
-}
-
-static std::pair<uint64_t, uint64_t> readFilesMetadata(const std::string& inputFile) {
-    if (!std::filesystem::exists(inputFile)) { return {}; }
 
     std::ifstream ifile(inputFile, std::ios_base::in | std::ios_base::binary);
     if (!ifile.is_open()) {
+        setEncryptionError(ExtraClasses::SystemFileError,
+                           "Glued files metadata read",
+                           "Failed to open glued file");
         return {};
     }
 
     char readBuffer[GLUE_METADATA_SIZE * 2];
     auto readBytes = ifile.readsome(readBuffer, GLUE_METADATA_SIZE * 2);
     if (GLUE_METADATA_SIZE * 2 != readBytes) {
-        throw std::runtime_error("Failed to split files: no metadata found");
+        setEncryptionError(ExtraClasses::SystemFileError,
+                           "Read glued files metadata",
+                           "Failed to read expected amount of bytes");
+        return {};
     }
-    auto fileAsize = getFilesize(std::string(readBuffer, GLUE_METADATA_SIZE));
-    auto fileBsize = getFilesize(std::string(readBuffer + GLUE_METADATA_SIZE, GLUE_METADATA_SIZE));
 
-    return {fileAsize, fileBsize};
+    std::pair<GlueFileMetadata, GlueFileMetadata> res;
+    res.first.initFromString(std::string(readBuffer, GLUE_METADATA_SIZE));
+    if (!res.first.isValid()) { return {}; }
+
+    res.second.initFromString(std::string(readBuffer + GLUE_METADATA_SIZE, GLUE_METADATA_SIZE));
+    if (!res.second.isValid()) { return {}; }
+
+    return res;
 }
 
 bool glueFiles(const std::string &fileA, const std::string &fileB, const std::string &resultFile)
 {
-    if (!std::filesystem::exists(fileA)) { return false; }
-    if (!std::filesystem::exists(fileB)) { return false; }
+    if (!std::filesystem::exists(fileA) || !std::filesystem::exists(fileB)) {
+        setEncryptionError(ExtraClasses::SystemFileError,
+                           "Glue files",
+                           "Failed to open input files");
+        return false;
+    }
 
-    const auto metadataFileA = createFileMetadata(fileA);
-    const auto metadataFileB = createFileMetadata(fileB);
+    // Get metadata of file A
+    const auto metadataFileA = GlueFileMetadata::fromFile(fileA);
+    if (!metadataFileA.isValid()) { return false; }
+    const auto metadataFileA_serialized = metadataFileA.toString();
+    if (metadataFileA_serialized.empty()) { return false; }
 
+    // Get metadata of file B
+    const auto metadataFileB = GlueFileMetadata::fromFile(fileB);
+    if (!metadataFileB.isValid()) { return false; }
+    const auto metadataFileB_serialized = metadataFileB.toString();
+    if (metadataFileB_serialized.empty()) { return false; }
+
+    // Save metadata
     Filework::TemporaryFile ofile(resultFile);
-    ofile.write(metadataFileA.c_str(), metadataFileA.size());
+    ofile.write(metadataFileA_serialized.c_str(), metadataFileA_serialized.size());
     ofile.flush();
-    ofile.write(metadataFileB.c_str(), metadataFileB.size());
+    ofile.write(metadataFileB_serialized.c_str(), metadataFileB_serialized.size());
     ofile.flush();
 
-    auto appendFileData = [&ofile](const std::string& iFile){
+    // Save both files data
+    auto appendFileData = [&ofile](const std::string& iFile) -> bool {
         std::ifstream ifile(iFile, std::ios_base::in | std::ios_base::binary);
+        if (!ifile.is_open()) {
+            setEncryptionError(ExtraClasses::SystemFileError,
+                               "Read glued files",
+                               "Failed to open input file A");
+            return false;
+        }
+        const auto expectedSize = std::filesystem::file_size(iFile);
+        std::size_t writtenSize {};
+
         const auto bufferSize = 4096;
         char readBuffer[bufferSize];
         auto readBytes = ifile.readsome(readBuffer, bufferSize);
         while (readBytes > 0) {
             ofile.write(readBuffer, readBytes);
             ofile.flush();
+            writtenSize += readBytes;
             readBytes = ifile.readsome(readBuffer, bufferSize);
         }
+        auto res = (expectedSize == writtenSize);
+        if (ifile.bad() || !res) {
+            setEncryptionError(ExtraClasses::SystemFileError,
+                               "Read glued files",
+                               std::string("Failed to read part of input file ") + iFile);
+            return false;
+        }
+        return true;
     };
-    appendFileData(fileA);
-    appendFileData(fileB);
+    auto isWritten = appendFileData(fileA);
+    if (!isWritten) { return false; }
+
+    isWritten = appendFileData(fileB);
+    if (!isWritten) { return false; }
 
     ofile.accept();
     return true;
@@ -222,16 +239,37 @@ bool glueFiles(const std::string &fileA, const std::string &fileB, const std::st
 
 bool splitGluedFiles(const std::string &inputFile, const std::string& fileA, const std::string& fileB)
 {
-    if (!std::filesystem::exists(inputFile)) { return false; }
+    if (!std::filesystem::exists(inputFile)) {
+        setEncryptionError(ExtraClasses::SystemFileError,
+                           "Glued file read",
+                           "Glued file not exist");
+        return false;
+    }
 
     const auto filesMetadata = readFilesMetadata(inputFile);
+    if (!filesMetadata.first.isValid() || !filesMetadata.second.isValid()) {
+        return false;
+    }
 
     std::ifstream gluedFile(inputFile, std::ios_base::in | std::ios_base::binary);
-    if (!gluedFile.is_open()) { return false; }
+    if (!gluedFile.is_open()) {
+        setEncryptionError(ExtraClasses::SystemFileError,
+                           "Glued file read",
+                           "Failed to open glued file");
+        return false;
+    }
     gluedFile.seekg(GLUE_METADATA_SIZE * 2, std::ios_base::beg);
 
-    auto extractFileData = [&gluedFile](const std::string& iFile, uint64_t expectedSize){
+    auto extractFileData = [&gluedFile](const std::string& iFile, const GlueFileMetadata& fileMetadata) -> bool {
         std::ofstream ofile(iFile, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+        if (!ofile.is_open()) {
+            setEncryptionError(ExtraClasses::SystemFileError,
+                               "Create glued file output",
+                               std::string("Failed to glued source file ") + iFile);
+            return false;
+        }
+        auto expectedSize = fileMetadata.fileSize;
+
         const uint64_t bufferSize = 4096;
         char readBuffer[bufferSize];
         auto readBytes = gluedFile.readsome(readBuffer, std::min(bufferSize, expectedSize));
@@ -241,9 +279,19 @@ bool splitGluedFiles(const std::string &inputFile, const std::string& fileA, con
             ofile.flush();
             readBytes = gluedFile.readsome(readBuffer, std::min(bufferSize, expectedSize));
         }
+        if (expectedSize > 0) {
+            setEncryptionError(ExtraClasses::SystemFileError,
+                               "Create glued file output",
+                               std::string("Failed to glued source file ") + iFile);
+            return false;
+        }
+        return (fileMetadata.fileHash == sha256file(iFile));
     };
-    extractFileData(fileA, filesMetadata.first);
-    extractFileData(fileB, filesMetadata.second);
+    auto isExtracted = extractFileData(fileA, filesMetadata.first);
+    if (!isExtracted) { return false; }
+
+    isExtracted = extractFileData(fileB, filesMetadata.second);
+    if (!isExtracted) { return false; }
 
     return true;
 }

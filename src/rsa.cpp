@@ -49,25 +49,33 @@ static std::optional<size_t> getDataChunkLength(const RSAKeysPtr& key, int paddi
 RSAKeysPtr rsaGenerateKeys() {
     EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
     if (!ctx) {
-        global_encryptionErrorText = "Failed to create EVP_PKEY_CTX";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalKeyGenerationFailed,
+                           "[RSA-KEYGEN] EVP_PKEY_CTX_new_id",
+                           "Failed to create EVP_PKEY_CTX");
         return {};
     }
 
     if (EVP_PKEY_keygen_init(ctx) <= 0) {
-        global_encryptionErrorText = "Failed to initialize keygen";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalKeyGenerationFailed,
+                           "[RSA-KEYGEN] EVP_PKEY_keygen_init",
+                           "Failed to initialize keygen");
         EVP_PKEY_CTX_free(ctx);
         return {};
     }
 
     if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048) <= 0) {
-        global_encryptionErrorText = "Failed to set key length";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalKeyGenerationFailed,
+                           "[RSA-KEYGEN] EVP_PKEY_CTX_set_rsa_keygen_bits",
+                           "Failed to set key length");
         EVP_PKEY_CTX_free(ctx);
         return {};
     }
 
     EVP_PKEY* key = nullptr;
     if (EVP_PKEY_keygen(ctx, &key) <= 0) {
-        global_encryptionErrorText = "Failed to generate key pair";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalKeyGenerationFailed,
+                           "[RSA-KEYGEN] EVP_PKEY_keygen",
+                           "Failed to generate key pair");
         EVP_PKEY_CTX_free(ctx);
         return {};
     }
@@ -79,14 +87,18 @@ RSAKeysPtr rsaGenerateKeys() {
 bool rsaSavePublicKey(const RSAKeysPtr& pkey, const std::string& filename) {
     FILE* fp = fopen(filename.c_str(), "wb");
     if (!fp) {
-        global_encryptionErrorText = std::string("[SAVEPUBK] ") + strerror(errno);
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-SAVEPUBK] file operation",
+                           strerror(errno));
         return false;
     }
 
     auto writeByteCount = PEM_write_PUBKEY(fp, pkey.get());
     fclose(fp);
     if (writeByteCount == 0) {
-        global_encryptionErrorText = std::string("[SAVEPUBK] ") + strerror(errno);
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-SAVEPUBK] file operation",
+                           strerror(errno));
         return false;
     }
     return true;
@@ -96,7 +108,9 @@ bool rsaSavePrivateKey(const RSAKeysPtr& pkey, const std::string& filename, cons
 {
     FILE* pkey_file = fopen(filename.c_str(), "wb");
     if (!pkey_file) {
-        global_encryptionErrorText = std::string("[SAVEPK] ") + strerror(errno);
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-SAVEPK] file operation",
+                           strerror(errno));
         return false;
     }
 
@@ -113,7 +127,9 @@ bool rsaSavePrivateKey(const RSAKeysPtr& pkey, const std::string& filename, cons
 
     fclose(pkey_file);
     if (writeByteCount == 0) {
-        global_encryptionErrorText = std::string("[SAVEPK] ") + strerror(errno);
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-SAVEPK] file operation",
+                           strerror(errno));
         return false;
     }
     return true;
@@ -123,13 +139,17 @@ bool rsaSavePrivateKey(const RSAKeysPtr& pkey, const std::string& filename, cons
 RSAKeysPtr rsaReadPublicKey(const std::string &filename) {
     FILE* fp = fopen(filename.c_str(), "rb");
     if (!fp) {
-        global_encryptionErrorText = std::string("[LOADPUBK] ") + strerror(errno);
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-LOADPUBK] fopen",
+                           strerror(errno));
         return nullptr;
     }
     auto pkey = PEM_read_PUBKEY(fp, NULL, NULL, NULL);
     fclose(fp);
     if (!pkey) {
-        global_encryptionErrorText = std::string("[LOADPUBK] ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA-LOADPUBK] PEM_read_PUBKEY",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
     return RSAKeysPtr(pkey, &EVP_PKEY_free);
@@ -138,14 +158,18 @@ RSAKeysPtr rsaReadPublicKey(const std::string &filename) {
 RSAKeysPtr rsaReadPrivateKey(const std::string &filename, const std::string &passphrase) {
     FILE* fp = fopen(filename.c_str(), "rb");
     if (!fp) {
-        global_encryptionErrorText = std::string("[LOADPK] ") + strerror(errno);
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-LOADPK] fopen",
+                           strerror(errno));
         return nullptr;
     }
     // Pass passphrase if the key is encrypted
     auto pkey = PEM_read_PrivateKey(fp, NULL, NULL, (void*)passphrase.data());
     fclose(fp);
     if (!pkey) {
-        global_encryptionErrorText = std::string("[LOADPK] ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA-LOADPK] PEM_read_PrivateKey",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
     return RSAKeysPtr(pkey, &EVP_PKEY_free);
@@ -153,7 +177,9 @@ RSAKeysPtr rsaReadPrivateKey(const std::string &filename, const std::string &pas
 
 std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const std::string &plaintext) {
     if (plaintext.empty()) {
-        global_encryptionErrorText = "Empty text to encrypt";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA] input",
+                           "Empty text to encrypt");
         return {};
     }
 
@@ -161,7 +187,9 @@ std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const s
 
     auto chunkLength = getDataChunkLength(publicKey, paddingType);
     if (!chunkLength) {
-        global_encryptionErrorText = std::string("[ENCS-SZ] Failed to determine RSA chunk size: ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA-ENCS-SZ] chunk size",
+                           std::string("Failed to determine RSA chunk size: ") + ERR_error_string(ERR_get_error(), nullptr));
         return {};
     }
     if (plaintext.size() > *chunkLength) {
@@ -179,7 +207,12 @@ std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const s
         if (nullptr != ctx) {
             EVP_PKEY_CTX_free(ctx);
         }
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        const auto errorCode = ERR_peek_error();
+        if (errorCode != 0) {
+            setEncryptionError(ExtraClasses::ErrorCode::LogicalEncryptionFailed,
+                               "[RSA-ENC] EVP_PKEY_CTX",
+                               ERR_error_string(errorCode, nullptr));
+        }
     };
     std::unique_ptr<EVP_PKEY_CTX, decltype(deleter)> pCtx { EVP_PKEY_CTX_new(publicKey.get(), NULL), deleter };
     if (!pCtx || EVP_PKEY_encrypt_init(pCtx.get()) <= 0) {
@@ -217,7 +250,9 @@ std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const s
 
 std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const std::string &ciphertext) {
     if (ciphertext.empty()) {
-        global_encryptionErrorText = "Empty text to encrypt";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA] input",
+                           "Empty text to encrypt");
         return {};
     }
 
@@ -241,7 +276,12 @@ std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const 
         if (nullptr != ctx) {
             EVP_PKEY_CTX_free(ctx);
         }
-        global_encryptionErrorText = ERR_error_string(ERR_get_error(), nullptr);
+        const auto errorCode = ERR_peek_error();
+        if (errorCode != 0) {
+            setEncryptionError(ExtraClasses::ErrorCode::LogicalDecryptionFailed,
+                               "[RSA-DEC] EVP_PKEY_CTX",
+                               ERR_error_string(errorCode, nullptr));
+        }
     };
     std::unique_ptr<EVP_PKEY_CTX, decltype(deleter)> pCtx { EVP_PKEY_CTX_new(privateKey.get(), NULL), deleter };
     if (!pCtx || EVP_PKEY_decrypt_init(pCtx.get()) <= 0) {
@@ -291,7 +331,9 @@ std::string rsaKeyToString(const RSAKeysPtr& pubKey)
         res.reserve(pem_length);
         std::copy(pem_string, pem_string + pem_length, std::back_inserter(res));
     } else {
-        global_encryptionErrorText = std::string("[TOSTR] ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[RSA-TOSTR]",
+                           ERR_error_string(ERR_get_error(), nullptr));
     }
 
     BIO_free(bio);
@@ -301,7 +343,9 @@ std::string rsaKeyToString(const RSAKeysPtr& pubKey)
 RSAKeysPtr rsaKeyFromString(const std::string& pubKey) {
     BIO* bio = BIO_new_mem_buf(pubKey.data(), static_cast<int>(pubKey.size()));
     if (!bio) {
-        global_encryptionErrorText = std::string("[FROMSTR] ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA-FROMSTR]",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return nullptr;
     }
 
@@ -309,13 +353,17 @@ RSAKeysPtr rsaKeyFromString(const std::string& pubKey) {
     BIO_free(bio);
 
     if (!pkey) {
-        global_encryptionErrorText = std::string("[FROMSTR] ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA-FROMSTR]",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return nullptr;
     }
 
     if (EVP_PKEY_base_id(pkey) != EVP_PKEY_RSA) {
         EVP_PKEY_free(pkey);
-        global_encryptionErrorText = std::string("[FROMSTR] ") + ERR_error_string(ERR_get_error(), nullptr);
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA-FROMSTR]",
+                           ERR_error_string(ERR_get_error(), nullptr));
         return nullptr;
     }
     return RSAKeysPtr(pkey, &EVP_PKEY_free);
@@ -325,7 +373,9 @@ bool rsaEncryptFile(const std::string &targetFile, const RSAKeysPtr &pubkey)
 {    
     std::ifstream inputFile(targetFile, std::ios::binary);
     if (!inputFile) {
-        global_encryptionErrorText = std::string("Failed to open target file: ") + strerror(errno);
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-FILE] open",
+                           std::string("Failed to open target file: ") + strerror(errno));
         return false;
     }
     Filework::TemporaryFile tmpFile(targetFile, false);
@@ -342,7 +392,9 @@ bool rsaEncryptFile(const std::string &targetFile, const RSAKeysPtr &pubkey)
     }
 
     if (inputFile.bad()) {
-        global_encryptionErrorText = "I/O error while reading file";
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-FILE] read",
+                           "I/O error while reading file");
         return false;
     }
 
@@ -353,12 +405,16 @@ bool rsaEncryptFile(const std::string &targetFile, const RSAKeysPtr &pubkey)
 bool rsaEncryptFile(const std::string &targetFile, const std::string &pubkeyPath)
 {
     if (!std::filesystem::exists(targetFile)) {
-        global_encryptionErrorText = "Invalid file";
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-FILE] existence",
+                           "Invalid file");
         return false;
     }
     auto rsaPublicKey = rsaReadPublicKey(pubkeyPath);
     if (NULL == rsaPublicKey) {
-        global_encryptionErrorText = "Failed to load public key";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA-FILE] key load",
+                           "Failed to load public key");
         return false;
     }
     return rsaEncryptFile(targetFile, rsaPublicKey);
@@ -368,7 +424,9 @@ bool rsaDecryptFile(const std::string &targetFile, const RSAKeysPtr &privkey)
 {
     std::ifstream inputFile(targetFile, std::ios::binary);
     if (!inputFile) {
-        global_encryptionErrorText = std::string("Failed to open target file: ") + strerror(errno);
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-FILE] open",
+                           std::string("Failed to open target file: ") + strerror(errno));
         return false;
     }
     Filework::TemporaryFile tmpFile(targetFile, false);
@@ -385,7 +443,9 @@ bool rsaDecryptFile(const std::string &targetFile, const RSAKeysPtr &privkey)
     }
 
     if (inputFile.bad()) {
-        global_encryptionErrorText = "I/O error while reading file";
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-FILE] read",
+                           "I/O error while reading file");
         return false;
     }
 
@@ -396,12 +456,16 @@ bool rsaDecryptFile(const std::string &targetFile, const RSAKeysPtr &privkey)
 bool rsaDecryptFile(const std::string &targetFile, const std::string &privkeyPath, const std::string &pass)
 {
     if (!std::filesystem::exists(targetFile)) {
-        global_encryptionErrorText = "Invalid file";
+        setEncryptionError(ExtraClasses::ErrorCode::SystemFileError,
+                           "[RSA-FILE] existence",
+                           "Invalid file");
         return false;
     }
     auto rsaPublicKey = rsaReadPrivateKey(privkeyPath, pass);
     if (NULL == rsaPublicKey) {
-        global_encryptionErrorText = "Failed to load public key";
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
+                           "[RSA-FILE] key load",
+                           "Failed to load public key");
         return false;
     }
     return rsaDecryptFile(targetFile, rsaPublicKey);
