@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <stdexcept>
 
 #include <Components/ExtraClasses/Error.h>
 
@@ -25,6 +26,26 @@ inline std::string getEncryptionErrorText() {
 inline ExtraClasses::ErrorObject getEncryptionError() {
     return g_error;
 }
+
+/**
+ * @brief secureClearMemory Used to avoid Dead Store Elimination
+ * @param ptr               Pointer to array
+ * @param size              Size of memory pointer holds
+ */
+template <typename T>
+void secureClearMemory(T* ptr, std::size_t size) {
+#if defined(_WIN32)
+    SecureZeroMemory(ptr, size);
+#elif defined(__linux__)
+    explicit_bzero(ptr, size);
+#elif defined(__GNUC__) || defined(__clang__)
+    std::memset(ptr, 0, count * sizeof(T));
+    asm volatile("" : : "r"(ptr) : "memory"); // Assembler barrier for compiler
+#else
+    throw std::runtime_error("Can not secure clear memory (not implemented for current circumstances)");
+#endif
+}
+
 
 /**
  * @brief generateBytes_CSPRNG  Generates bytes using CSPRNG (for salt, keys, etc.)
