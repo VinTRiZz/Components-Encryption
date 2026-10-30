@@ -22,21 +22,22 @@ std::optional<std::string> sha256(const std::string_view& input);
 std::optional<std::string> sha256file(const std::string_view& filepath);
 
 /**
- * @brief glueFiles     Glue files into one
- * @param fileA
- * @param fileB
- * @param resultFile    Filename for result
- * @return
+ * @brief The SensitiveDataHash class Comparable object for sensitive data hashing
  */
-bool glueFiles(const std::string& fileA, const std::string& fileB, const std::string& resultFile);
+struct SensitiveDataHash {
+    std::string salt;
+    std::string hash;
+
+    bool isValid() const {
+        return !(hash.empty() | salt.empty());
+    }
+};
 
 /**
- * @brief splitGluedFiles   Split glued files. Will save files just as named on calling glueFiles() function
- * @param inputFile         File to split
- * @param fileA             Output file A (same as fileA in glueFiles() )
- * @param fileB             Output file B (same as fileB in glueFiles() )
- * @return
+ * @brief hashSensitiveData Create hash using sensitive data, using PBKDF2-HMAC-SHA256 algorithm
+ * @param sensitiveData
+ * @return                  Comparable object
  */
-bool splitGluedFiles(const std::string& inputFile, const std::string &fileA, const std::string &fileB);
+SensitiveDataHash hashSensitiveData(std::string&& sensitiveData);
 
 }  // namespace Encryption

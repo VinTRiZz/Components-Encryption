@@ -1,7 +1,7 @@
 #pragma once
 
+#include <cstring>
 #include <string>
-#include <stdexcept>
 
 #include <Components/ExtraClasses/Error.h>
 

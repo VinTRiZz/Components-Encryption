@@ -1,17 +1,18 @@
 #include "hash.hpp"
 
+#include <openssl/core_names.h>
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 #include <openssl/err.h>
+#include <openssl/kdf.h>
+#include <openssl/rand.h>
 
+#include <stdexcept>
+#include <sstream>
 #include <iomanip>
 #include <fstream>
 #include <memory>
 #include <filesystem>
-
-#include <Components/Filework/TemporaryFile.h>
-
-#include "gluefilemetadata.hpp"
 
 // OpenSSL engine implementation
 #define OPENSSL_ENGINE NULL
@@ -131,169 +132,61 @@ std::optional<std::string> sha256file(const std::string_view &filepath)
     return ss.str();
 }
 
-// =============================================== //
-// File glueing
 
-static std::pair<GlueFileMetadata, GlueFileMetadata> readFilesMetadata(const std::string& inputFile) {
-    if (!std::filesystem::exists(inputFile)) {
-        setEncryptionError(ExtraClasses::SystemFileError,
-                           "Glued files metadata read",
-                           "Glued file not exist");
-        return {};
-    }
 
-    std::ifstream ifile(inputFile, std::ios_base::in | std::ios_base::binary);
-    if (!ifile.is_open()) {
-        setEncryptionError(ExtraClasses::SystemFileError,
-                           "Glued files metadata read",
-                           "Failed to open glued file");
-        return {};
-    }
-
-    char readBuffer[GLUE_METADATA_SIZE * 2];
-    auto readBytes = ifile.readsome(readBuffer, GLUE_METADATA_SIZE * 2);
-    if (GLUE_METADATA_SIZE * 2 != readBytes) {
-        setEncryptionError(ExtraClasses::SystemFileError,
-                           "Read glued files metadata",
-                           "Failed to read expected amount of bytes");
-        return {};
-    }
-
-    std::pair<GlueFileMetadata, GlueFileMetadata> res;
-    res.first.initFromString(std::string(readBuffer, GLUE_METADATA_SIZE));
-    if (!res.first.isValid()) { return {}; }
-
-    res.second.initFromString(std::string(readBuffer + GLUE_METADATA_SIZE, GLUE_METADATA_SIZE));
-    if (!res.second.isValid()) { return {}; }
-
-    return res;
-}
-
-bool glueFiles(const std::string &fileA, const std::string &fileB, const std::string &resultFile)
+SensitiveDataHash hashSensitiveData(std::string &&sensitiveData)
 {
-    if (!std::filesystem::exists(fileA) || !std::filesystem::exists(fileB)) {
-        setEncryptionError(ExtraClasses::SystemFileError,
-                           "Glue files",
-                           "Failed to open input files");
-        return false;
+    if (sensitiveData.empty()) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SensitiveDataHash] Init",
+                           "Empty input");
+        return {};
     }
 
-    // Get metadata of file A
-    const auto metadataFileA = GlueFileMetadata::fromFile(fileA);
-    if (!metadataFileA.isValid()) { return false; }
-    const auto metadataFileA_serialized = metadataFileA.toString();
-    if (metadataFileA_serialized.empty()) { return false; }
+    const size_t SDH_SALT_SIZE = 16;
+    const size_t SDH_HASH_SIZE = 32; // 256 bit
+    const uint32_t SDH_ITERATION_COUNT = 600000; // OWASP recomendation
 
-    // Get metadata of file B
-    const auto metadataFileB = GlueFileMetadata::fromFile(fileB);
-    if (!metadataFileB.isValid()) { return false; }
-    const auto metadataFileB_serialized = metadataFileB.toString();
-    if (metadataFileB_serialized.empty()) { return false; }
-
-    // Save metadata
-    Filework::TemporaryFile ofile(resultFile);
-    ofile.write(metadataFileA_serialized.c_str(), metadataFileA_serialized.size());
-    ofile.flush();
-    ofile.write(metadataFileB_serialized.c_str(), metadataFileB_serialized.size());
-    ofile.flush();
-
-    // Save both files data
-    auto appendFileData = [&ofile](const std::string& iFile) -> bool {
-        std::ifstream ifile(iFile, std::ios_base::in | std::ios_base::binary);
-        if (!ifile.is_open()) {
-            setEncryptionError(ExtraClasses::SystemFileError,
-                               "Read glued files",
-                               "Failed to open input file A");
-            return false;
+    // Setup KDF context
+    EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "PBKDF2", nullptr);
+    auto pCtx = std::shared_ptr<EVP_KDF_CTX>{
+        EVP_KDF_CTX_new(kdf),
+        [](EVP_KDF_CTX* ctx){
+            EVP_KDF_CTX_free(ctx);
         }
-        const auto expectedSize = std::filesystem::file_size(iFile);
-        std::size_t writtenSize {};
-
-        const auto bufferSize = 4096;
-        char readBuffer[bufferSize];
-        auto readBytes = ifile.readsome(readBuffer, bufferSize);
-        while (readBytes > 0) {
-            ofile.write(readBuffer, readBytes);
-            ofile.flush();
-            writtenSize += readBytes;
-            readBytes = ifile.readsome(readBuffer, bufferSize);
-        }
-        auto res = (expectedSize == writtenSize);
-        if (ifile.bad() || !res) {
-            setEncryptionError(ExtraClasses::SystemFileError,
-                               "Read glued files",
-                               std::string("Failed to read part of input file ") + iFile);
-            return false;
-        }
-        return true;
     };
-    auto isWritten = appendFileData(fileA);
-    if (!isWritten) { return false; }
+    EVP_KDF_free(kdf);
 
-    isWritten = appendFileData(fileB);
-    if (!isWritten) { return false; }
-
-    ofile.accept();
-    return true;
-}
-
-bool splitGluedFiles(const std::string &inputFile, const std::string& fileA, const std::string& fileB)
-{
-    if (!std::filesystem::exists(inputFile)) {
-        setEncryptionError(ExtraClasses::SystemFileError,
-                           "Glued file read",
-                           "Glued file not exist");
-        return false;
+    if (!pCtx) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SensitiveDataHash] Init",
+                           std::string("KDF context setup failed: ") + ERR_error_string(ERR_get_error(), nullptr));
+        return {};
     }
 
-    const auto filesMetadata = readFilesMetadata(inputFile);
-    if (!filesMetadata.first.isValid() || !filesMetadata.second.isValid()) {
-        return false;
-    }
-
-    std::ifstream gluedFile(inputFile, std::ios_base::in | std::ios_base::binary);
-    if (!gluedFile.is_open()) {
-        setEncryptionError(ExtraClasses::SystemFileError,
-                           "Glued file read",
-                           "Failed to open glued file");
-        return false;
-    }
-    gluedFile.seekg(GLUE_METADATA_SIZE * 2, std::ios_base::beg);
-
-    auto extractFileData = [&gluedFile](const std::string& iFile, const GlueFileMetadata& fileMetadata) -> bool {
-        std::ofstream ofile(iFile, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
-        if (!ofile.is_open()) {
-            setEncryptionError(ExtraClasses::SystemFileError,
-                               "Create glued file output",
-                               std::string("Failed to glued source file ") + iFile);
-            return false;
-        }
-        auto expectedSize = fileMetadata.fileSize;
-
-        const uint64_t bufferSize = 4096;
-        char readBuffer[bufferSize];
-        auto readBytes = gluedFile.readsome(readBuffer, std::min(bufferSize, expectedSize));
-        while (readBytes > 0) {
-            expectedSize -= readBytes;
-            ofile.write(readBuffer, readBytes);
-            ofile.flush();
-            readBytes = gluedFile.readsome(readBuffer, std::min(bufferSize, expectedSize));
-        }
-        if (expectedSize > 0) {
-            setEncryptionError(ExtraClasses::SystemFileError,
-                               "Create glued file output",
-                               std::string("Failed to glued source file ") + iFile);
-            return false;
-        }
-        return (fileMetadata.fileHash == sha256file(iFile));
+    // Configure OpenSSL for hashing with PBKDF2
+    auto salt = generateBytes_CSPRNG(SDH_SALT_SIZE);
+    OSSL_PARAM osslParameters[] = {
+        OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, const_cast<char*>("SHA256"), 0),
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, const_cast<char*>(sensitiveData.data()), sensitiveData.size()),
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt.data(), salt.size()),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, const_cast<uint32_t*>(&SDH_ITERATION_COUNT)),
+        OSSL_PARAM_construct_end()
     };
-    auto isExtracted = extractFileData(fileA, filesMetadata.first);
-    if (!isExtracted) { return false; }
 
-    isExtracted = extractFileData(fileB, filesMetadata.second);
-    if (!isExtracted) { return false; }
+    // Get key
+    std::string derivedKey;
+    derivedKey.resize(SDH_HASH_SIZE);
+    auto deriveRes = EVP_KDF_derive(pCtx.get(), reinterpret_cast<uint8_t*>(derivedKey.data()), derivedKey.size(), osslParameters);
+    if (deriveRes <= 0) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SensitiveDataHash] Derive",
+                           std::string("PBKDF2 calc failed: ") + ERR_error_string(ERR_get_error(), nullptr));
+        return {};
+    }
 
-    return true;
+    secureClearMemory(sensitiveData.data(), sensitiveData.size());
+    return { std::move(salt), std::move(derivedKey) };
 }
 
 }  // namespace Encryption
