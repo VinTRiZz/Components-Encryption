@@ -257,9 +257,7 @@ std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const 
     }
 
     const auto paddingType = RSA_PKCS1_OAEP_PADDING;
-
-    // 256 is RSA chunk size
-    if (ciphertext.size() > 256) {
+    if (ciphertext.size() > EVP_PKEY_get_size(privateKey.get())) {
         auto splittedData = ExtraClasses::DataInfo::split(ciphertext, 256);
         std::string res;
         for (auto& pt : splittedData) {
