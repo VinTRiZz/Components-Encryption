@@ -46,4 +46,28 @@ std::optional<std::string> aes256_gcm_encrypt(const std::string& input, const st
  */
 std::optional<std::string> aes256_gcm_decrypt(const std::string& input, const std::string& key, const std::string& aad = {});
 
+/**
+ * @brief aes256_gcm_encryptFile    Encrypt file using AES-256-GCM
+ * @param inputFile                 File path
+ * @param key                       Key (32 bytes expected)
+ * @param aad                       Additional Authenticated Data (AAD)
+ * @return
+ */
+ExtraClasses::ErrorObject aes256_gcm_encryptFile(
+    const std::string_view& inputFile,
+    const std::string_view& key,
+    const std::string_view& aad = {});
+
+/**
+ * @brief aes256_gcm_decryptFile    Decrypt file using AES-256-GCM
+ * @param inputFile                 File path
+ * @param key                       Key (32 bytes expected)
+ * @param aad                       Additional Authenticated Data (AAD)
+ * @return
+ */
+ExtraClasses::ErrorObject aes256_gcm_decryptFile(
+    const std::string_view& inputFile,
+    const std::string_view& key,
+    const std::string_view& aad = {});
+
 }  // namespace Encryption
