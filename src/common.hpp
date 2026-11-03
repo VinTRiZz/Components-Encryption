@@ -8,6 +8,10 @@
 namespace Encryption
 {
 
+// ===================================================== //
+
+// Inlines for compiler optimisation potential (assuming lib can build in shared mode)
+
 // Encryption processes error
 thread_local inline ExtraClasses::ErrorObject g_error {};
 
@@ -27,8 +31,11 @@ inline ExtraClasses::ErrorObject getEncryptionError() {
     return g_error;
 }
 
+
+// ===================================================== //
+
 /**
- * @brief secureClearMemory Used to avoid Dead Store Elimination
+ * @brief secureClearMemory Clean memory with avoiding Dead Store Elimination
  * @param ptr               Pointer to array
  * @param size              Size of memory pointer holds
  */
@@ -46,11 +53,43 @@ void secureClearMemory(T* ptr, std::size_t size) {
 #endif
 }
 
+/**
+ * @brief The SafeString class RAII to use secure clear memory
+ */
+class SafeString
+{
+public:
+    SafeString() = default;
+    ~SafeString() { secureClearMemory(m_value.data(), m_value.size()); }
+
+    SafeString(const std::string& iStr) : m_value {iStr} {}
+    SafeString(std::string&& iStr) : m_value {std::move(iStr)} {}
+
+    inline SafeString& operator=(const std::string& iStr) {
+        secureClearMemory(m_value.data(), m_value.size());
+        m_value = iStr;
+        return *this;
+    }
+
+    inline SafeString& operator=(std::string&& iStr) {
+        secureClearMemory(m_value.data(), m_value.size());
+        m_value = std::move(iStr);
+        return *this;
+    }
+
+    std::string& value() { return m_value; }
+    const std::string& value() const { return m_value; }
+
+private:
+    std::string m_value;
+};
+
 
 /**
  * @brief generateBytes_CSPRNG  Generates bytes using CSPRNG (for salt, keys, etc.)
  * @param lengthByte            Size of a string to generate
  * @return
+ * @throws                      std::runtime_error or std::invalid_argument on errors
  */
 std::string generateBytes_CSPRNG(const std::size_t lengthByte);
 
