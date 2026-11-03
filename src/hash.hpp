@@ -28,9 +28,7 @@ struct SensitiveDataHash {
     std::string salt;
     std::string hash;
 
-    bool isValid() const {
-        return !(hash.empty() | salt.empty());
-    }
+    bool isValid() const;
 };
 
 /**

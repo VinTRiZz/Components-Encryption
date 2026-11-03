@@ -189,4 +189,8 @@ SensitiveDataHash hashSensitiveData(std::string &&sensitiveData)
     return { std::move(salt), std::move(derivedKey) };
 }
 
+bool SensitiveDataHash::isValid() const {
+    return !(hash.empty() | salt.empty());
+}
+
 }  // namespace Encryption
