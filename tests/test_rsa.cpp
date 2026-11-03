@@ -76,14 +76,14 @@ TEST(Components_Encryption, RSA_KeySaveRestore) {
 
     // Regular save test
     Filework::TemporaryFile privFreeTmp;
-    ASSERT_TRUE(Encryption::rsaSavePrivateKey(key, std::string(privFreeTmp.getFilename())));
+    ASSERT_TRUE(Encryption::rsaSaveKey(key, std::string(privFreeTmp.getFilename()), false));
     ASSERT_TRUE(std::filesystem::exists(privFreeTmp.getFilename()) &&
                 std::filesystem::file_size(privFreeTmp.getFilename()) != 0);
 
     // Encrypted save test
     const std::string encryptionPassphrase = Encryption::generateSymbols(100);
     Filework::TemporaryFile privEncrTmp;
-    ASSERT_TRUE(Encryption::rsaSavePrivateKey(key, std::string(privEncrTmp.getFilename()), encryptionPassphrase));
+    ASSERT_TRUE(Encryption::rsaSaveKey(key, std::string(privEncrTmp.getFilename()), false, encryptionPassphrase));
     ASSERT_TRUE(std::filesystem::exists(privEncrTmp.getFilename()) &&
                 std::filesystem::file_size(privEncrTmp.getFilename()) != 0);
 
@@ -96,18 +96,18 @@ TEST(Components_Encryption, RSA_KeySaveRestore) {
 
     // Public save test
     Filework::TemporaryFile pubTmp;
-    ASSERT_TRUE(Encryption::rsaSavePublicKey(key, std::string(pubTmp.getFilename())));
+    ASSERT_TRUE(Encryption::rsaSaveKey(key, std::string(pubTmp.getFilename())));
     ASSERT_TRUE(std::filesystem::exists(privFreeTmp.getFilename()) &&
                 std::filesystem::file_size(privFreeTmp.getFilename()) != 0);
 
     // Reading keys
-    auto pubKey = Encryption::rsaReadPublicKey(std::string(pubTmp.getFilename()));
+    auto pubKey = Encryption::rsaReadKey(std::string(pubTmp.getFilename()));
     ASSERT_NE(pubKey, nullptr);
 
-    auto privKey = Encryption::rsaReadPrivateKey(std::string(privFreeTmp.getFilename()));
+    auto privKey = Encryption::rsaReadKey(std::string(privFreeTmp.getFilename()), false);
     ASSERT_NE(privKey, nullptr);
 
-    auto privEncKey = Encryption::rsaReadPrivateKey(std::string(privEncrTmp.getFilename()), encryptionPassphrase);
+    auto privEncKey = Encryption::rsaReadKey(std::string(privEncrTmp.getFilename()), false, encryptionPassphrase);
     ASSERT_NE(privEncKey, nullptr);
 
     // Check if read keys are correct
@@ -128,27 +128,63 @@ TEST(Components_Encryption, RSA_FileEncrypt) {
     srcFile.flush();
     srcFile.accept();
 
+    const std::string path(srcFile.getFilename());
+
     // Encrypt file data
-    ASSERT_TRUE(Encryption::rsaEncryptFile(std::string(srcFile.getFilename()), key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
+    ASSERT_TRUE(Encryption::rsaEncryptFile(path, key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
 
     // Read what encrypted
-    char readBuffer[BUFF_SIZE * 2];
-    srcFile.seekg(0, std::ios_base::beg);
-    std::fill_n(readBuffer, BUFF_SIZE * 2, '\0');
-    auto readCnt = srcFile.readsome(readBuffer, BUFF_SIZE * 2);
-    ASSERT_GT(readCnt, BUFF_SIZE); // Must be 256*N, more that source
-    ASSERT_NE(testData, readBuffer);
+    std::string encryptedData;
+    ASSERT_TRUE(Filework::Common::readFileData(path, encryptedData));
+    ASSERT_GT(encryptedData.size(), testData.size()); // Must be 256*N, more that source
+    ASSERT_NE(testData, encryptedData);
 
     // Check encrypting of file
-    ASSERT_TRUE(Encryption::rsaDecryptFile(std::string(srcFile.getFilename()), key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
+    ASSERT_TRUE(Encryption::rsaDecryptFile(path, key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
 
     // Read what decrypted
-    readCnt = 0;
-    srcFile.seekg(0, std::ios_base::beg);
-    std::fill_n(readBuffer, BUFF_SIZE * 2, '\0');
-    readCnt = srcFile.readsome(readBuffer, BUFF_SIZE * 2);
-    ASSERT_EQ(BUFF_SIZE, readCnt); // Must be equal with source size
-    ASSERT_EQ(testData, std::string(readBuffer, readCnt));
+    std::string decryptedData;
+    ASSERT_TRUE(Filework::Common::readFileData(path, decryptedData));
+    ASSERT_EQ(testData, decryptedData);
+}
+
+
+TEST(Components_Encryption, RSA_FileHybridEncrypt) {
+    auto key = Encryption::rsaGenerateKeys();
+    auto aesKey = Encryption::generateBytes(32);
+
+    std::string testData;
+    const auto BUFF_SIZE = 7641; // Must be enough for test
+    testData = Encryption::generateBytes(BUFF_SIZE);
+
+    Filework::TemporaryFile srcFile;
+    srcFile.write(testData.c_str(), testData.size());
+    srcFile.flush();
+    srcFile.accept();
+
+    const std::string path(srcFile.getFilename());
+
+    // Encrypt file data
+    ASSERT_TRUE(Encryption::rsaHybridEncryptFile(path, aesKey, key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
+
+    // Read what encrypted
+    std::string encryptedData;
+    ASSERT_TRUE(Filework::Common::readFileData(path, encryptedData));
+    ASSERT_GT(encryptedData.size(), testData.size()); // Must be 256*N, more that source
+    ASSERT_NE(testData, encryptedData);
+
+    ASSERT_FALSE(Encryption::rsaHybridDecryptFile(path, Encryption::generateBytes(32), key).isOk());
+    std::string stillEncrypted;
+    ASSERT_TRUE(Filework::Common::readFileData(path, stillEncrypted));
+    ASSERT_EQ(encryptedData, stillEncrypted);
+
+    // Check encrypting of file
+    ASSERT_TRUE(Encryption::rsaHybridDecryptFile(path, aesKey, key)) << "ERROR TEXT: " << Encryption::getEncryptionErrorText();
+
+    // Read what decrypted
+    std::string decryptedData;
+    ASSERT_TRUE(Filework::Common::readFileData(path, decryptedData));
+    ASSERT_EQ(testData, decryptedData);
 }
 
 #endif // COMPONENTS_SW_encryption_rsa
