@@ -136,7 +136,13 @@ std::optional<std::string> sha256file(const std::string_view &filepath)
 
 SensitiveDataHash hashSensitiveData(std::string &&sensitiveData)
 {
-    if (sensitiveData.empty()) {
+    SafeString dat;
+    return hashSensitiveData(dat);
+}
+
+SensitiveDataHash hashSensitiveData(const SafeString &sensitiveData)
+{
+    if (sensitiveData->empty()) {
         setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
                            "[SensitiveDataHash] Init",
                            "Empty input");
@@ -168,7 +174,7 @@ SensitiveDataHash hashSensitiveData(std::string &&sensitiveData)
     auto salt = generateBytes_CSPRNG(SDH_SALT_SIZE);
     OSSL_PARAM osslParameters[] = {
         OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, const_cast<char*>("SHA256"), 0),
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, const_cast<char*>(sensitiveData.data()), sensitiveData.size()),
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD, const_cast<char*>(sensitiveData->data()), sensitiveData->size()),
         OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, salt.data(), salt.size()),
         OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, const_cast<uint32_t*>(&SDH_ITERATION_COUNT)),
         OSSL_PARAM_construct_end()
@@ -185,7 +191,6 @@ SensitiveDataHash hashSensitiveData(std::string &&sensitiveData)
         return {};
     }
 
-    secureClearMemory(sensitiveData.data(), sensitiveData.size());
     return { std::move(salt), std::move(derivedKey) };
 }
 

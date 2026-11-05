@@ -37,5 +37,6 @@ struct SensitiveDataHash {
  * @return                  Comparable object
  */
 SensitiveDataHash hashSensitiveData(std::string&& sensitiveData);
+SensitiveDataHash hashSensitiveData(const SafeString& sensitiveData);
 
 }  // namespace Encryption
