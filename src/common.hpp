@@ -62,20 +62,20 @@ public:
     SafeString() = default;
     ~SafeString() { secureClearMemory(m_value.data(), m_value.size()); }
 
-    SafeString(const std::string& iStr) : m_value {iStr} {}
+    template <typename T>
+    SafeString(const T& iStr) : m_value {iStr} {}
+
     SafeString(std::string&& iStr) : m_value {std::move(iStr)} {}
 
-    inline SafeString& operator=(const std::string& iStr) {
+    template <typename T>
+    inline SafeString& operator=(T&& iStr) {
         secureClearMemory(m_value.data(), m_value.size());
         m_value = iStr;
         return *this;
     }
 
-    inline SafeString& operator=(std::string&& iStr) {
-        secureClearMemory(m_value.data(), m_value.size());
-        m_value = std::move(iStr);
-        return *this;
-    }
+    const std::string* operator->() const { return &m_value; }
+    std::string* operator->() { return &m_value; }
 
     std::string& value() { return m_value; }
     const std::string& value() const { return m_value; }
