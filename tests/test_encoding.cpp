@@ -93,6 +93,26 @@ TEST(Components_Encryption, Base64_RoundTrip) {
     }
 }
 
+TEST(Components_Encryption, Base64_DecodeInvalid) {
+    const std::vector<std::string> cases {
+        "Zg=",        // length is not a multiple of 4
+        "Zm9vYmE",    // missing padding
+        "Z===",       // invalid padding layout
+        "A===",       // padding starts too early
+        "=AAA",       // padding at the beginning
+        "A=AA",       // padding in the middle
+        "Zm9v!",      // invalid character
+        "Zm9v\n",     // whitespace/newline is not valid Base64
+        "Zm 9v",      // whitespace inside the payload
+    };
+
+    for (const auto& input : cases) {
+        const auto result = Encryption::decodeBase64(input);
+        EXPECT_FALSE(result.has_value()) << "Input must be rejected: " << input;
+        expectEncodingFailed("Invalid Base64 input: " + input);
+    }
+}
+
 // ============================================== //
 // Hex
 // ============================================== //

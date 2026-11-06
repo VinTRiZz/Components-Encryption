@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iconv.h>
 #include <limits>
+#include <memory>
 
 // Common OpenSSL
 #include <openssl/err.h>
@@ -34,49 +35,198 @@ struct HexNibbleTable {
     }
 };
 inline constexpr HexNibbleTable kHexNibble{};
+
+struct Base64Validation {
+    const char* error = nullptr;
+    std::size_t padding = 0;
+};
+
+using BioPtr = std::unique_ptr<BIO, decltype(&BIO_free)>;
+using BioAllPtr = std::unique_ptr<BIO, decltype(&BIO_free_all)>;
+
+inline bool isBase64AlphabetChar(const unsigned char c) noexcept
+{
+    return (c >= 'A' && c <= 'Z') ||
+           (c >= 'a' && c <= 'z') ||
+           (c >= '0' && c <= '9') ||
+           c == '+' || c == '/';
+}
+
+Base64Validation validateBase64Input(const std::string& input) noexcept
+{
+    Base64Validation result;
+
+    if (input.empty()) {
+        return result;
+    }
+
+    if (input.size() % 4u != 0u) {
+        result.error = "Invalid length (must be a multiple of 4)";
+        return result;
+    }
+
+    if (input[input.size() - 1u] == '=') {
+        ++result.padding;
+    }
+    if (input.size() >= 2u && input[input.size() - 2u] == '=') {
+        ++result.padding;
+    }
+
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(input[i]);
+
+        if (c == '=') {
+            if (i < input.size() - result.padding) {
+                result.error = "Unexpected padding character";
+                return result;
+            }
+            continue;
+        }
+
+        if (!isBase64AlphabetChar(c)) {
+            result.error = "Invalid Base64 character";
+            return result;
+        }
+    }
+
+    return result;
+}
 }
 
 
 std::optional<std::string> encodeBase64(const std::string &input)
 {
-    BIO *bio {}, *b64 {};
-    BUF_MEM* bufferPtr {};
+    if (input.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-ENC] input",
+                           "Input size exceeds supported limit");
+        return {};
+    }
 
-    bio = BIO_new(BIO_s_mem());
-    b64 = BIO_new(BIO_f_base64());
-    bio = BIO_push(b64, bio);
+    if (input.empty()) {
+        return std::string {};
+    }
 
-    BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
-    BIO_write(bio, input.c_str(), static_cast<int>(input.length()));
-    BIO_flush(bio);
+    BioAllPtr bio(BIO_new(BIO_s_mem()), &BIO_free_all);
+    if (!bio) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-ENC] BIO_new",
+                           "Failed to allocate memory BIO");
+        return {};
+    }
 
-    BIO_get_mem_ptr(bio, &bufferPtr);
-    std::string output(bufferPtr->data, bufferPtr->length);
+    BioPtr b64(BIO_new(BIO_f_base64()), &BIO_free);
+    if (!b64) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-ENC] BIO_new",
+                           "Failed to allocate Base64 BIO");
+        return {};
+    }
 
-    BIO_free_all(bio);
+    bio.reset(BIO_push(b64.release(), bio.release()));
+    BIO_set_flags(bio.get(), BIO_FLAGS_BASE64_NO_NL);
+
+    const int inputLength = static_cast<int>(input.size());
+    const int written = BIO_write(bio.get(), input.data(), inputLength);
+    if (written != inputLength) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-ENC] BIO_write",
+                           "Failed to write input (written " + std::to_string(written) +
+                               " of " + std::to_string(inputLength) + " bytes)");
+        return {};
+    }
+
+    if (BIO_flush(bio.get()) != 1) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-ENC] BIO_flush",
+                           "Failed to flush Base64 encoder");
+        return {};
+    }
+
+    BUF_MEM *bufferPtr = nullptr;
+    if (BIO_get_mem_ptr(bio.get(), &bufferPtr) != 1 || bufferPtr == nullptr) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-ENC] BIO_get_mem_ptr",
+                           "Failed to get encoded buffer");
+        return {};
+    }
+
+    if (bufferPtr->length != 0u && bufferPtr->data == nullptr) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-ENC] BIO_get_mem_ptr",
+                           "Encoded buffer is null");
+        return {};
+    }
+
+    std::string output;
+    if (bufferPtr->length != 0u) {
+        output.assign(bufferPtr->data, bufferPtr->length);
+    }
 
     return output;
 }
 
 std::optional<std::string> decodeBase64(const std::string &input)
 {
-    BIO *bio {}, *b64 {};
-    char* buffer = new char[input.size()];
-    memset(buffer, 0, input.size());
+    if (input.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)())) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-DEC] input",
+                           "Input size exceeds supported limit");
+        return {};
+    }
 
-    bio = BIO_new_mem_buf(input.c_str(), static_cast<int>(input.length()));
-    b64 = BIO_new(BIO_f_base64());
-    bio = BIO_push(b64, bio);
+    const Base64Validation validation = validateBase64Input(input);
+    if (validation.error != nullptr) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-DEC] input",
+                           validation.error);
+        return {};
+    }
 
-    BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
-    int len = BIO_read(bio, buffer, static_cast<int>(input.size()));
+    if (input.empty()) {
+        return std::string {};
+    }
 
-    BIO_free_all(bio);
+    BioAllPtr bio(BIO_new_mem_buf(input.data(), static_cast<int>(input.size())), &BIO_free_all);
+    if (!bio) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-DEC] BIO_new_mem_buf",
+                           "Failed to allocate input BIO");
+        return {};
+    }
 
-    std::string output(buffer, len);
-    delete[] buffer;
+    BioPtr b64(BIO_new(BIO_f_base64()), &BIO_free);
+    if (!b64) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-DEC] BIO_new",
+                           "Failed to allocate Base64 BIO");
+        return {};
+    }
 
-    return output;
+    bio.reset(BIO_push(b64.release(), bio.release()));
+    BIO_set_flags(bio.get(), BIO_FLAGS_BASE64_NO_NL);
+
+    const std::size_t expectedLength = (input.size() / 4u) * 3u - validation.padding;
+    std::string buffer(expectedLength, '\0');
+
+    const int decoded = BIO_read(bio.get(), buffer.data(), static_cast<int>(buffer.size()));
+    if (decoded < 0) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-DEC] BIO_read",
+                           "Failed to decode Base64 input");
+        return {};
+    }
+
+    if (static_cast<std::size_t>(decoded) != expectedLength) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[BASE64-DEC] BIO_read",
+                           "Decoded size mismatch (expected " + std::to_string(expectedLength) +
+                               ", got " + std::to_string(decoded) + " bytes)");
+        return {};
+    }
+
+    buffer.resize(static_cast<std::size_t>(decoded));
+    return buffer;
 }
 
 std::optional<std::string> encodeHex(const std::string& input, bool useUpperCase)
