@@ -1,7 +1,17 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include <Components/ExtraClasses/Error.h>
 
@@ -40,16 +50,20 @@ inline ExtraClasses::ErrorObject getEncryptionError() {
  * @param size              Size of memory pointer holds
  */
 template <typename T>
-void secureClearMemory(T* ptr, std::size_t size) {
+void secureClearMemory(T* ptr, const std::size_t count) {
+    if (ptr == nullptr || count == 0) { return; }
+    const auto byteCount = count * sizeof(T);
 #if defined(_WIN32)
-    SecureZeroMemory(ptr, size);
+    SecureZeroMemory(ptr, byteCount);
 #elif defined(__linux__)
-    explicit_bzero(ptr, size);
+    explicit_bzero(ptr, byteCount);
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+    explicit_bzero(ptr, byteCount);
 #elif defined(__GNUC__) || defined(__clang__)
-    std::memset(ptr, 0, count * sizeof(T));
+    std::memset(ptr, 0, byteCount);
     asm volatile("" : : "r"(ptr) : "memory"); // Assembler barrier for compiler
 #else
-    throw std::runtime_error("Can not secure clear memory (not implemented for current circumstances)");
+    std::memset(ptr, 0, byteCount);
 #endif
 }
 
@@ -62,15 +76,36 @@ public:
     SafeString() = default;
     ~SafeString() { secureClearMemory(m_value.data(), m_value.size()); }
 
+    SafeString(const SafeString& other) : m_value {other.m_value} {}
+    SafeString(SafeString&& other) noexcept : m_value {std::move(other.m_value)} {}
+
     template <typename T>
     SafeString(const T& iStr) : m_value {iStr} {}
 
     SafeString(std::string&& iStr) : m_value {std::move(iStr)} {}
 
-    template <typename T>
+    SafeString& operator=(const SafeString& other) {
+        if (this != &other) {
+            clear();
+            m_value = other.m_value;
+        }
+        return *this;
+    }
+
+    SafeString& operator=(SafeString&& other) noexcept {
+        if (this != &other) {
+            clear();
+            m_value = std::move(other.m_value);
+        }
+        return *this;
+    }
+
+    template <typename T,
+              typename = std::enable_if_t<
+                  !std::is_same_v<std::decay_t<T>, SafeString>>>
     inline SafeString& operator=(T&& iStr) {
-        secureClearMemory(m_value.data(), m_value.size());
-        m_value = iStr;
+        clear();
+        m_value = std::forward<T>(iStr);
         return *this;
     }
 
@@ -81,7 +116,61 @@ public:
     const std::string& value() const { return m_value; }
 
 private:
+    void clear() { secureClearMemory(m_value.data(), m_value.size()); }
+
     std::string m_value;
+};
+
+/**
+ * @brief disableCoreDumps Prohibit writing process memory into a core dump
+ * @note  Does not protect against privileged ptrace / process_vm_readv
+ */
+void disableCoreDumps();
+
+/**
+ * @brief lockSecureMemory Locks a memory range and excludes it from process dumps (where supported)
+ * @param ptr               Start of the range
+ * @param size              Size in bytes
+ * @return                  true if the range was locked
+ */
+bool lockSecureMemory(void* ptr, std::size_t size);
+
+/**
+ * @brief unlockSecureMemory Unlocks a previously locked memory range
+ */
+void unlockSecureMemory(void* ptr, std::size_t size);
+
+/**
+ * @brief The SecureBuffer class Page-aligned, locked, dump-excluded, zero-on-free buffer
+ */
+class SecureBuffer
+{
+public:
+    explicit SecureBuffer(std::size_t size);
+    ~SecureBuffer();
+
+    SecureBuffer(const SecureBuffer&) = delete;
+    SecureBuffer& operator=(const SecureBuffer&) = delete;
+
+    SecureBuffer(SecureBuffer&& other) noexcept;
+    SecureBuffer& operator=(SecureBuffer&& other) noexcept;
+
+    std::uint8_t* data() noexcept { return m_data; }
+    const std::uint8_t* data() const noexcept { return m_data; }
+    std::size_t size() const noexcept { return m_size; }
+
+    std::string_view view() const noexcept {
+        if (m_data == nullptr) { return {}; }
+        return {reinterpret_cast<const char*>(m_data), m_size};
+    }
+
+private:
+    void release() noexcept;
+
+    std::uint8_t* m_data {nullptr};
+    std::size_t   m_size {0};
+    std::size_t   m_allocSize {0};
+    bool          m_isMapped {false};
 };
 
 
