@@ -8,8 +8,30 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
+#include <openssl/evp.h>
 #include <openssl/pem.h>
+
+namespace {
+
+// RSA-OAEP uses SHA-256 for both the digest and MGF1 in this component.
+constexpr int OAEP_SHA256_DIGEST_SIZE {32};
+constexpr int OAEP_SHA256_OVERHEAD {2 * OAEP_SHA256_DIGEST_SIZE + 2};
+
+std::size_t getRsaKeySize(const Encryption::RSAKeysPtr& key) {
+    const int keySize = EVP_PKEY_get_size(key.get());
+    EXPECT_GT(keySize, 0);
+    return static_cast<std::size_t>(keySize);
+}
+
+std::size_t getOaepSha256ChunkSize(const Encryption::RSAKeysPtr& key) {
+    const auto keySize = getRsaKeySize(key);
+    EXPECT_GT(keySize, static_cast<std::size_t>(OAEP_SHA256_OVERHEAD));
+    return keySize - static_cast<std::size_t>(OAEP_SHA256_OVERHEAD);
+}
+
+}
 
 TEST(Components_Encryption, RSA_Init) {
     auto key = Encryption::rsaGenerateKeys();
@@ -69,6 +91,55 @@ TEST(Components_Encryption, RSA_StringSizes) {
     ASSERT_FALSE(encStr->empty());
     ASSERT_NE(sample, encStr);
     ASSERT_EQ(sample, decStr);
+}
+
+TEST(Components_Encryption, RSA_OAEP_SHA256_ChunkBoundaries) {
+    auto key = Encryption::rsaGenerateKeys();
+    const auto keySize = getRsaKeySize(key);
+    const auto chunkSize = getOaepSha256ChunkSize(key);
+
+    const std::vector<std::size_t> sizes {
+        1,
+        chunkSize - 1,
+        chunkSize,
+        chunkSize + 1,
+        2 * chunkSize,
+        2 * chunkSize + 1,
+        3 * chunkSize + 7
+    };
+
+    for (const auto size : sizes) {
+        const auto sample = Encryption::generateBytes(size);
+        const auto encrypted = Encryption::rsaEncryptString(key, sample);
+        ASSERT_TRUE(encrypted.has_value())
+            << "Size: " << size << ", error: " << Encryption::getEncryptionErrorText();
+
+        const auto expectedBlocks = (size + chunkSize - 1) / chunkSize;
+        EXPECT_EQ(keySize * expectedBlocks, encrypted->size())
+            << "Size: " << size << " must be split into " << expectedBlocks << " RSA blocks";
+
+        const auto decrypted = Encryption::rsaDecryptString(key, encrypted.value());
+        ASSERT_TRUE(decrypted.has_value())
+            << "Size: " << size << ", error: " << Encryption::getEncryptionErrorText();
+        EXPECT_EQ(sample, decrypted.value()) << "Size: " << size;
+    }
+}
+
+TEST(Components_Encryption, RSA_OAEP_SHA256_RejectsInvalidCiphertext) {
+    auto key = Encryption::rsaGenerateKeys();
+    auto otherKey = Encryption::rsaGenerateKeys();
+    const auto sample = Encryption::generateBytes(64);
+
+    const auto encrypted = Encryption::rsaEncryptString(key, sample);
+    ASSERT_TRUE(encrypted.has_value()) << Encryption::getEncryptionErrorText();
+
+    EXPECT_FALSE(Encryption::rsaDecryptString(otherKey, encrypted.value()).has_value())
+        << "A different private key must not decrypt the ciphertext";
+
+    auto tampered = encrypted.value();
+    tampered[tampered.size() / 2] ^= static_cast<char>(0x01);
+    EXPECT_FALSE(Encryption::rsaDecryptString(key, tampered).has_value())
+        << "A tampered ciphertext must be rejected";
 }
 
 TEST(Components_Encryption, RSA_KeySaveRestore) {

@@ -175,6 +175,10 @@ std::optional<std::string> rsaEncryptString(const RSAKeysPtr& publicKey, const s
     if (EVP_PKEY_CTX_set_rsa_padding(pCtx.get(), paddingType) <= 0) {
         return {};
     }
+    if (EVP_PKEY_CTX_set_rsa_oaep_md(pCtx.get(), EVP_sha256()) <= 0 ||
+        EVP_PKEY_CTX_set_rsa_mgf1_md(pCtx.get(), EVP_sha256()) <= 0) {
+        return {};
+    }
 
     // Determine buffer size
     size_t ciphertext_len {0};
@@ -209,8 +213,11 @@ std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const 
     }
 
     // Split data into parts
-    if (ciphertext.size() > EVP_PKEY_get_size(privateKey.get())) {
-        auto splittedData = ExtraClasses::DataInfo::split(ciphertext, 256);
+    const auto keySize = EVP_PKEY_get_size(privateKey.get());
+    if (keySize <= 0) { return {}; }
+    if (ciphertext.size() > static_cast<std::size_t>(keySize)) {
+        auto splittedData = ExtraClasses::DataInfo::split(
+            ciphertext, static_cast<std::size_t>(keySize));
         std::string res;
         for (auto& pt : splittedData) {
             auto decPt = Encryption::rsaDecryptString(privateKey, pt);
@@ -230,6 +237,10 @@ std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const 
     // Set padding - MUST match the padding used during encryption
     const auto paddingType = RSA_PKCS1_OAEP_PADDING;
     if (EVP_PKEY_CTX_set_rsa_padding(pCtx.get(), paddingType) <= 0) {
+        return {};
+    }
+    if (EVP_PKEY_CTX_set_rsa_oaep_md(pCtx.get(), EVP_sha256()) <= 0 ||
+        EVP_PKEY_CTX_set_rsa_mgf1_md(pCtx.get(), EVP_sha256()) <= 0) {
         return {};
     }
 

@@ -101,6 +101,53 @@ TEST(Components_Encryption, AES256_GCM_StringSizes) {
     checkStringGCM(Encryption::generateBytes(1931), key);
 }
 
+TEST(Components_Encryption, AES256_GCM_StringViewInputs) {
+    const std::string sample = Encryption::generateBytes(321);
+
+    // Key and AAD are views into a larger buffer: the implementation must use
+    // their size instead of relying on a NUL terminator.
+    const std::string keyStorage = std::string("k") + Encryption::generateBytes(32) + "k";
+    const std::string_view key(keyStorage.data() + 1, 32);
+
+    const std::string aadStorage = std::string("a") + Encryption::generateBytes(64) + "a";
+    const std::string_view aad(aadStorage.data() + 1, 64);
+
+    auto encrypted = Encryption::aes256_gcm_encrypt(sample, key, aad);
+    ASSERT_TRUE(encrypted.has_value()) << Encryption::getEncryptionErrorText();
+
+    auto decrypted = Encryption::aes256_gcm_decrypt(encrypted.value(), key, aad);
+    ASSERT_TRUE(decrypted.has_value()) << Encryption::getEncryptionErrorText();
+    EXPECT_EQ(sample, decrypted.value());
+
+    const std::string_view wrongAad(aadStorage.data(), 64);
+    EXPECT_FALSE(Encryption::aes256_gcm_decrypt(encrypted.value(), key, wrongAad).has_value());
+
+    // A key view must contain exactly 32 bytes.
+    EXPECT_FALSE(Encryption::aes256_gcm_encrypt(
+        sample, std::string_view(keyStorage.data() + 1, 31), aad).has_value());
+    EXPECT_FALSE(Encryption::aes256_gcm_encrypt(
+        sample, std::string_view(keyStorage.data() + 1, 33), aad).has_value());
+
+    // Binary keys may contain NUL bytes.
+    const std::string binaryKey = std::string(1, '\0') + Encryption::generateBytes(31);
+    const std::string_view binaryKeyView(binaryKey.data(), binaryKey.size());
+    encrypted = Encryption::aes256_gcm_encrypt(sample, binaryKeyView, aad);
+    ASSERT_TRUE(encrypted.has_value()) << Encryption::getEncryptionErrorText();
+    decrypted = Encryption::aes256_gcm_decrypt(encrypted.value(), binaryKeyView, aad);
+    ASSERT_TRUE(decrypted.has_value()) << Encryption::getEncryptionErrorText();
+    EXPECT_EQ(sample, decrypted.value());
+
+    // String literals must bind to the string_view parameters directly.
+    constexpr std::string_view LITERAL_KEY {"0123456789abcdef0123456789abcdef"};
+    constexpr std::string_view LITERAL_AAD {"literal-aad"};
+
+    encrypted = Encryption::aes256_gcm_encrypt(sample, LITERAL_KEY, LITERAL_AAD);
+    ASSERT_TRUE(encrypted.has_value()) << Encryption::getEncryptionErrorText();
+    decrypted = Encryption::aes256_gcm_decrypt(encrypted.value(), LITERAL_KEY, LITERAL_AAD);
+    ASSERT_TRUE(decrypted.has_value()) << Encryption::getEncryptionErrorText();
+    EXPECT_EQ(sample, decrypted.value());
+}
+
 TEST(Components_Encryption, AES256_GCM_FileRoundTrip) {
     const auto key = Encryption::generateBytes(32);
     const std::vector<std::size_t> sizes {

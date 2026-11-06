@@ -51,12 +51,11 @@ std::optional<size_t> getDataChunkLength(const RSAKeysPtr &key, int padding) {
         return static_cast<size_t>(keySize);
 
     case RSA_PKCS1_OAEP_PADDING: {
-        // Default OAEP hash in OpenSSL is SHA-1 (20 bytes)
-        // If you explicitly set a different OAEP hash, adjust this value accordingly.
-        const int sha1Size = 20;
+        // RSA OAEP uses SHA-256 for both the digest and MGF1 in this component.
+        const int hashSize = 32;
         // OAEP overhead = 2 * hashLen + 2
-        if (keySize <= 2 * sha1Size + 2) return std::nullopt;
-        return static_cast<size_t>(keySize - 2 * sha1Size - 2);
+        if (keySize <= 2 * hashSize + 2) return std::nullopt;
+        return static_cast<size_t>(keySize - 2 * hashSize - 2);
     }
     }
     // Unsupported padding mode for encryption

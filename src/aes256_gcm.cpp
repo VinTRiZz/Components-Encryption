@@ -188,7 +188,7 @@ std::optional<int> aes256_gcm_deinitDecrypt(
 // ============ Interface implementation ============= //
 // =================================================== //
 
-std::optional<std::string> aes256_gcm_encrypt(const std::string& input, const std::string& key, const std::string& aad) {
+std::optional<std::string> aes256_gcm_encrypt(const std::string& input, const std::string_view& key, const std::string_view& aad) {
     auto iv = generateBytes_CSPRNG(BLOB_IV_LENGTH);
     std::string tag;
     std::string ciphertext;
@@ -221,7 +221,7 @@ std::optional<std::string> aes256_gcm_encrypt(const std::string& input, const st
 }
 
 
-std::optional<std::string> aes256_gcm_decrypt(const std::string& input, const std::string& key, const std::string& aad) {
+std::optional<std::string> aes256_gcm_decrypt(const std::string& input, const std::string_view& key, const std::string_view& aad) {
     std::string iv;
     std::string tag;
     std::string ciphertext;

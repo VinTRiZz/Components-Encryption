@@ -5,6 +5,7 @@
 /// **************************************************************************** ///
 
 #include <string>
+#include <string_view>
 #include <optional>
 
 #include "common.hpp"
@@ -35,7 +36,7 @@ std::optional<std::string> aes256_cbc_decrypt(const std::string& input, const st
  * @param aad               Additional Authenticated Data (AAD)
  * @return                  Зашифрованный текст или пустая std::string при ошибке
  */
-std::optional<std::string> aes256_gcm_encrypt(const std::string& input, const std::string& key, const std::string& aad = {});
+std::optional<std::string> aes256_gcm_encrypt(const std::string& input, const std::string_view& key, const std::string_view& aad = {});
 
 /**
  * @brief aes256decrypt     Дешифровать зашифрованный с помощью AES-256-GCM текст
@@ -44,7 +45,7 @@ std::optional<std::string> aes256_gcm_encrypt(const std::string& input, const st
  * @param aad               Additional Authenticated Data (AAD)
  * @return                  Зашифрованный текст или пустая std::string при ошибке
  */
-std::optional<std::string> aes256_gcm_decrypt(const std::string& input, const std::string& key, const std::string& aad = {});
+std::optional<std::string> aes256_gcm_decrypt(const std::string& input, const std::string_view& key, const std::string_view& aad = {});
 
 /**
  * @brief aes256_gcm_encryptFile    Encrypt file using AES-256-GCM
