@@ -262,21 +262,27 @@ std::optional<std::string> rsaDecryptString(const RSAKeysPtr& privateKey, const 
 
 std::string rsaKeyToString(const RSAKeysPtr& pubKey, bool isPubkey, const std::string_view& passphrase)
 {
-    BIO *bio = BIO_new(BIO_s_mem()); // Create a memory BIO
+    std::unique_ptr<BIO, decltype(&BIO_free)> bio(BIO_new(BIO_s_mem()), &BIO_free); // Create a memory BIO
+    if (!bio) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalEncodingFailed,
+                           "[RSA-TOSTR] BIO_new",
+                           "Failed to allocate memory BIO");
+        return {};
+    }
     char *pem_string = nullptr;
 
     int writeRes {};
     if (isPubkey) {
-        writeRes = PEM_write_bio_PUBKEY(bio, pubKey.get());
+        writeRes = PEM_write_bio_PUBKEY(bio.get(), pubKey.get());
     } else if (passphrase.empty()) {
         writeRes = PEM_write_bio_PKCS8PrivateKey(
-            bio, pubKey.get(),
+            bio.get(), pubKey.get(),
             nullptr, nullptr, 0,
             nullptr, nullptr
         );
     } else {
         writeRes = PEM_write_bio_PKCS8PrivateKey(
-            bio, pubKey.get(),
+            bio.get(), pubKey.get(),
             EVP_aes_256_cbc(), passphrase.data(), passphrase.size(),
             nullptr, nullptr
         );
@@ -288,12 +294,11 @@ std::string rsaKeyToString(const RSAKeysPtr& pubKey, bool isPubkey, const std::s
         return {};
     }
 
-    long pem_length = BIO_get_mem_data(bio, &pem_string);
+    long pem_length = BIO_get_mem_data(bio.get(), &pem_string);
     std::string res;
     res.reserve(pem_length);
     std::copy(pem_string, pem_string + pem_length, std::back_inserter(res));
 
-    BIO_free(bio);
     return res;
 }
 
@@ -323,15 +328,15 @@ RSAKeysPtr rsaKeyFromString(const std::string& pubKey, bool isPubkey, const std:
         return {};
     }
 
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> keyPtr(pkey, &EVP_PKEY_free);
 
-    if (EVP_PKEY_base_id(pkey) != EVP_PKEY_RSA) {
-        EVP_PKEY_free(pkey);
+    if (EVP_PKEY_base_id(keyPtr.get()) != EVP_PKEY_RSA) {
         setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
                            "[RSA-FROMSTR]",
                            ERR_error_string(ERR_get_error(), nullptr));
         return nullptr;
     }
-    return RSAKeysPtr(pkey, &EVP_PKEY_free);
+    return RSAKeysPtr(keyPtr.release(), &EVP_PKEY_free);
 }
 
 bool rsaEncryptFile(const std::string &targetFile, const RSAKeysPtr &pubkey)

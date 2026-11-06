@@ -154,14 +154,22 @@ SensitiveDataHash hashSensitiveData(const SafeString &sensitiveData)
     const uint32_t SDH_ITERATION_COUNT = 600000; // OWASP recomendation
 
     // Setup KDF context
-    EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "PBKDF2", nullptr);
+    std::unique_ptr<EVP_KDF, decltype(&EVP_KDF_free)> kdf(
+        EVP_KDF_fetch(nullptr, "PBKDF2", nullptr),
+        &EVP_KDF_free);
+    if (!kdf) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[SensitiveDataHash] Init",
+                           std::string("KDF fetching failed: ") + ERR_error_string(ERR_get_error(), nullptr));
+        return {};
+    }
+
     auto pCtx = std::shared_ptr<EVP_KDF_CTX>{
-        EVP_KDF_CTX_new(kdf),
+        EVP_KDF_CTX_new(kdf.get()),
         [](EVP_KDF_CTX* ctx){
             EVP_KDF_CTX_free(ctx);
         }
     };
-    EVP_KDF_free(kdf);
 
     if (!pCtx) {
         setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
