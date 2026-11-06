@@ -5,8 +5,10 @@
 #include <openssl/sha.h>
 #include <openssl/err.h>
 #include <openssl/kdf.h>
+#include <openssl/hmac.h>
 #include <openssl/rand.h>
 
+#include <climits>
 #include <stdexcept>
 #include <sstream>
 #include <iomanip>
@@ -133,6 +135,160 @@ std::optional<std::string> sha256file(const std::string_view &filepath)
 }
 
 
+
+std::optional<std::string> argon2id(
+    const std::string_view &password,
+    const std::string_view &salt,
+    const Argon2idParams &params)
+{
+    constexpr std::uint32_t MIN_MEMORY_KIB {8};
+    constexpr std::uint32_t MAX_MEMORY_KIB {1024 * 1024};
+    constexpr std::uint32_t MAX_ITERATIONS {64};
+    constexpr std::uint32_t MAX_PARALLELISM {64};
+    constexpr std::uint32_t MIN_HASH_LENGTH {4};
+    constexpr std::uint32_t MAX_HASH_LENGTH {1024};
+
+    if (password.empty()) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[Argon2id] password",
+                           "Empty password");
+        return {};
+    }
+    if (salt.size() < 8) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[Argon2id] salt",
+                           "Salt is too short (at least 8 bytes are required)");
+        return {};
+    }
+    if (params.memoryKiB < MIN_MEMORY_KIB ||
+        params.memoryKiB > MAX_MEMORY_KIB ||
+        params.memoryKiB < static_cast<std::uint64_t>(MIN_MEMORY_KIB) * params.parallelism ||
+        params.iterations == 0 ||
+        params.iterations > MAX_ITERATIONS ||
+        params.parallelism == 0 ||
+        params.parallelism > MAX_PARALLELISM ||
+        params.hashLength < MIN_HASH_LENGTH ||
+        params.hashLength > MAX_HASH_LENGTH) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[Argon2id] parameters",
+                           "Invalid Argon2id cost parameters");
+        return {};
+    }
+
+    std::unique_ptr<EVP_KDF, decltype(&EVP_KDF_free)> kdf(
+        EVP_KDF_fetch(nullptr, "ARGON2ID", nullptr),
+        &EVP_KDF_free);
+    if (!kdf) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[Argon2id] EVP_KDF_fetch",
+                           std::string("Argon2id is not available: ") +
+                               ERR_error_string(ERR_get_error(), nullptr));
+        return {};
+    }
+
+    std::unique_ptr<EVP_KDF_CTX, decltype(&EVP_KDF_CTX_free)> ctx(
+        EVP_KDF_CTX_new(kdf.get()),
+        &EVP_KDF_CTX_free);
+    if (!ctx) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[Argon2id] EVP_KDF_CTX_new",
+                           ERR_error_string(ERR_get_error(), nullptr));
+        return {};
+    }
+
+    std::uint32_t memoryKiB = params.memoryKiB;
+    std::uint32_t iterations = params.iterations;
+    std::uint32_t parallelism = params.parallelism;
+    std::uint32_t version = 0x13; // Argon2 v1.3
+
+    OSSL_PARAM osslParameters[10];
+    std::size_t paramIndex = 0;
+    osslParameters[paramIndex++] = OSSL_PARAM_construct_octet_string(
+        OSSL_KDF_PARAM_PASSWORD,
+        const_cast<char*>(password.data()),
+        password.size());
+    osslParameters[paramIndex++] = OSSL_PARAM_construct_octet_string(
+        OSSL_KDF_PARAM_SALT,
+        const_cast<char*>(salt.data()),
+        salt.size());
+    osslParameters[paramIndex++] = OSSL_PARAM_construct_uint32(
+        OSSL_KDF_PARAM_ARGON2_MEMCOST, &memoryKiB);
+    osslParameters[paramIndex++] = OSSL_PARAM_construct_uint32(
+        OSSL_KDF_PARAM_ITER, &iterations);
+    osslParameters[paramIndex++] = OSSL_PARAM_construct_uint32(
+        OSSL_KDF_PARAM_ARGON2_LANES, &parallelism);
+    osslParameters[paramIndex++] = OSSL_PARAM_construct_uint32(
+        OSSL_KDF_PARAM_ARGON2_VERSION, &version);
+
+    if (!params.secret.empty()) {
+        osslParameters[paramIndex++] = OSSL_PARAM_construct_octet_string(
+            OSSL_KDF_PARAM_SECRET,
+            const_cast<char*>(params.secret.data()),
+            params.secret.size());
+    }
+    if (!params.associatedData.empty()) {
+        osslParameters[paramIndex++] = OSSL_PARAM_construct_octet_string(
+            OSSL_KDF_PARAM_ARGON2_AD,
+            const_cast<char*>(params.associatedData.data()),
+            params.associatedData.size());
+    }
+    osslParameters[paramIndex] = OSSL_PARAM_construct_end();
+
+    std::string derivedKey;
+    derivedKey.resize(params.hashLength);
+    const auto deriveResult = EVP_KDF_derive(
+        ctx.get(),
+        reinterpret_cast<unsigned char*>(derivedKey.data()),
+        derivedKey.size(),
+        osslParameters);
+    if (deriveResult <= 0) {
+        secureClearMemory(derivedKey.data(), derivedKey.size());
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[Argon2id] EVP_KDF_derive",
+                           ERR_error_string(ERR_get_error(), nullptr));
+        return {};
+    }
+    return derivedKey;
+}
+
+std::optional<std::string> hmacSha256(
+    const std::string_view &key,
+    const std::string_view &data)
+{
+    if (key.empty()) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[HMAC-SHA256] key",
+                           "Empty key");
+        return {};
+    }
+    if (key.size() > static_cast<std::size_t>(INT_MAX)) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[HMAC-SHA256] key",
+                           "Key is too long");
+        return {};
+    }
+
+    unsigned char tag[EVP_MAX_MD_SIZE] {};
+    unsigned int tagLength = 0;
+    const auto result = HMAC(
+        EVP_sha256(),
+        key.data(),
+        static_cast<int>(key.size()),
+        reinterpret_cast<const unsigned char*>(data.data()),
+        data.size(),
+        tag,
+        &tagLength);
+    if (result == nullptr || tagLength == 0) {
+        setEncryptionError(ExtraClasses::ErrorCode::LogicalHashFailed,
+                           "[HMAC-SHA256] HMAC",
+                           ERR_error_string(ERR_get_error(), nullptr));
+        return {};
+    }
+
+    std::string output(reinterpret_cast<const char*>(tag), tagLength);
+    secureClearMemory(tag, sizeof(tag));
+    return output;
+}
 
 SensitiveDataHash hashSensitiveData(std::string &&sensitiveData)
 {
