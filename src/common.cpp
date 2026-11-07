@@ -291,9 +291,14 @@ void SecureBuffer::release() noexcept
 
 std::string hideSymbols(const std::string &val)
 {
-    if (val.size() < 2) { return "***"; }
-    if (val.size() < 5) { return val.substr(0, 1) + "***" + val.substr(val.size() - 1); }
-    return val.substr(0, 2) + "***" + val.substr(val.size() - 2);
+    if (val.empty()) { return {}; }
+    std::string res;
+    const int requiredSize = val.size() < 5 ? val.size() : val.size() - 3;
+    res.reserve(requiredSize);
+    if (val.size() > 4) { res += std::string(val.data(), 2); }
+    std::fill_n(std::back_inserter(res), requiredSize, '*');
+    if (val.size() > 4) { res += std::string(val.data() + val.size() - 2, 2); }
+    return res;
 }
 
 }
