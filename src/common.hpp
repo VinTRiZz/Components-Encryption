@@ -74,7 +74,7 @@ class SafeString
 {
 public:
     SafeString() = default;
-    ~SafeString() { secureClearMemory(m_value.data(), m_value.size()); }
+    ~SafeString() { clear(); }
 
     SafeString(const SafeString& other) : m_value {other.m_value} {}
     SafeString(SafeString&& other) noexcept : m_value {std::move(other.m_value)} {}
@@ -204,6 +204,16 @@ std::string generateSymbols(const std::size_t lengthByte);
  * @note                    Function is NOT cryptosafe, key creating is user's responsibility
  */
 void aes256_fixKeySize(std::string &key);
+
+/**
+ * @brief hideSymbols   Hides symbols of input string with '*'
+ * @param val           Any sized string
+ * @return              For <2 symbols "***", for >2 FRST"***"LST, else FRST2"***"LST2
+ * @example ""          --> "***"
+ * @example "az"        --> "a***z"
+ * @example "abcdefg"   --> "ab***fg"
+ */
+std::string hideSymbols(const std::string &val);
 
 }
 

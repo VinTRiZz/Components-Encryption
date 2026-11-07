@@ -289,4 +289,11 @@ void SecureBuffer::release() noexcept
     m_isMapped = false;
 }
 
+std::string hideSymbols(const std::string &val)
+{
+    if (val.size() < 2) { return "***"; }
+    if (val.size() < 5) { return val.substr(0, 1) + "***" + val.substr(val.size() - 1); }
+    return val.substr(0, 2) + "***" + val.substr(val.size() - 2);
+}
+
 }
