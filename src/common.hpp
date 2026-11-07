@@ -74,7 +74,7 @@ class SafeString
 {
 public:
     SafeString() = default;
-    ~SafeString() { clear(); }
+    ~SafeString() { secureClear(); }
 
     SafeString(const SafeString& other) : m_value {other.m_value} {}
     SafeString(SafeString&& other) noexcept : m_value {std::move(other.m_value)} {}
@@ -86,7 +86,7 @@ public:
 
     SafeString& operator=(const SafeString& other) {
         if (this != &other) {
-            clear();
+            secureClear();
             m_value = other.m_value;
         }
         return *this;
@@ -94,7 +94,7 @@ public:
 
     SafeString& operator=(SafeString&& other) noexcept {
         if (this != &other) {
-            clear();
+            secureClear();
             m_value = std::move(other.m_value);
         }
         return *this;
@@ -104,7 +104,7 @@ public:
               typename = std::enable_if_t<
                   !std::is_same_v<std::decay_t<T>, SafeString>>>
     inline SafeString& operator=(T&& iStr) {
-        clear();
+        secureClear();
         m_value = std::forward<T>(iStr);
         return *this;
     }
@@ -117,7 +117,7 @@ public:
     operator std::string&() { return value(); }
     operator const std::string&() const { return value(); }
 
-    void clear() { secureClearMemory(m_value.data(), m_value.size()); }
+    void secureClear() { secureClearMemory(m_value.data(), m_value.size()); }
 
 private:
     std::string m_value;
