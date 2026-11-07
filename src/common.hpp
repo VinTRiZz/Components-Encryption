@@ -117,9 +117,9 @@ public:
     operator std::string&() { return value(); }
     operator const std::string&() const { return value(); }
 
-private:
     void clear() { secureClearMemory(m_value.data(), m_value.size()); }
 
+private:
     std::string m_value;
 };
 
