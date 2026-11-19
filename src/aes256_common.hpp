@@ -41,6 +41,24 @@ bool unpackGcmBlob(const std::string& blob,
 // =================================================== //
 // =================================================== //
 // =================================================== //
+
+#if __cplusplus < 202002UL
+struct ContextPtrDeleter
+{
+    void operator()(EVP_CIPHER_CTX* ctx) {
+        if (nullptr != ctx) {
+            EVP_CIPHER_CTX_free(ctx);
+        }
+        const auto errorCode = ERR_peek_error();
+        if (errorCode != 0) {
+            setEncryptionError(ExtraClasses::ErrorCode::LogicalEncryptionFailed,
+                               "[AES-256-GCM] Context deleting",
+                               ERR_error_string(errorCode, nullptr));
+        }
+    }
+};
+inline auto deleter = ContextPtrDeleter{};
+#else
 inline auto deleter = [](EVP_CIPHER_CTX* ctx){
     if (nullptr != ctx) {
         EVP_CIPHER_CTX_free(ctx);
@@ -52,6 +70,7 @@ inline auto deleter = [](EVP_CIPHER_CTX* ctx){
                            ERR_error_string(errorCode, nullptr));
     }
 };
+#endif // Lambda issues (C++20 only)
 using ContextPtr = std::unique_ptr<EVP_CIPHER_CTX, decltype(deleter)>;
 
 }

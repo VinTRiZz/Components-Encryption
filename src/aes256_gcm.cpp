@@ -6,6 +6,7 @@
 #include <Components/Filework/TemporaryFile.h>
 
 #include <memory>
+#include <utility>
 
 namespace Encryption {
 
@@ -20,7 +21,7 @@ std::pair<ContextPtr, CipherPtr>
         setEncryptionError(ExtraClasses::ErrorCode::LogicalInvalidValue,
                            "[AES-256-GCM] encrypt key/IV",
                            "Invalid key or IV length for AES-256-GCM");
-        return {};
+        return std::make_pair(ContextPtr{}, CipherPtr{});
     }
 
     const auto pCipher = aes256_gcm_getContext();
